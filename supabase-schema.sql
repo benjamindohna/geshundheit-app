@@ -2,6 +2,7 @@
 create table documents (
   id uuid primary key default gen_random_uuid(),
   filename text not null,
+  content_hash text unique,
   storage_path text not null,
   file_type text not null,
   uploaded_at timestamptz default now(),

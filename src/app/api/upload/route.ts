@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
 import { supabase } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
@@ -14,11 +15,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nur PDF, JPEG und PNG werden unterstützt' }, { status: 400 })
   }
 
-  const ext = file.name.split('.').pop() ?? 'bin'
-  const storagePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
+  const contentHash = createHash('sha256').update(buffer).digest('hex')
+
+  // Duplicate check
+  const { data: existing } = await supabase
+    .from('documents')
+    .select('id, filename, extraction_status')
+    .eq('content_hash', contentHash)
+    .maybeSingle()
+
+  if (existing) {
+    return NextResponse.json({ document: existing, duplicate: true })
+  }
+
+  const ext = file.name.split('.').pop() ?? 'bin'
+  const storagePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
   let { error: uploadError } = await supabase.storage
     .from('health-docs')
@@ -42,6 +55,7 @@ export async function POST(request: NextRequest) {
     .from('documents')
     .insert({
       filename: file.name,
+      content_hash: contentHash,
       storage_path: storagePath,
       file_type: fileType,
       extraction_status: 'pending',
@@ -53,5 +67,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: dbError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ document: doc })
+  return NextResponse.json({ document: doc, duplicate: false })
 }

@@ -35,6 +35,15 @@ type TestRec = { title: string; description: string; urgency: string }
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
+type Document = {
+  id: string
+  filename: string
+  uploaded_at: string
+  extraction_status: string
+  file_type: string
+  observations: { count: number }[]
+}
+
 const statusColor = {
   normal: 'bg-green-50 text-green-700 border-green-200',
   borderline: 'bg-yellow-50 text-yellow-700 border-yellow-200',
@@ -66,7 +75,8 @@ export default function Dashboard() {
   const [observations, setObservations] = useState<Observation[]>([])
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
-  const [activeTab, setActiveTab] = useState<'werte' | 'analyse' | 'chat'>('werte')
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [activeTab, setActiveTab] = useState<'werte' | 'analyse' | 'chat' | 'dokumente'>('werte')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
@@ -76,6 +86,9 @@ export default function Dashboard() {
     fetch('/api/observations')
       .then((r) => r.json())
       .then((d) => setObservations(d.observations ?? []))
+    fetch('/api/documents')
+      .then((r) => r.json())
+      .then((d) => setDocuments(d.documents ?? []))
   }, [])
 
   useEffect(() => {
@@ -196,18 +209,18 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="flex border-b border-zinc-200 mb-6 gap-1">
-              {(['werte', 'analyse', 'chat'] as const).map((tab) => (
+            <div className="flex border-b border-zinc-200 mb-6 gap-1 overflow-x-auto">
+              {(['werte', 'analyse', 'chat', 'dokumente'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                     activeTab === tab
                       ? 'border-zinc-900 text-zinc-900'
                       : 'border-transparent text-zinc-500 hover:text-zinc-700'
                   }`}
                 >
-                  {tab === 'werte' ? 'Messwerte' : tab === 'analyse' ? 'Analyse' : 'Chat'}
+                  {tab === 'werte' ? 'Messwerte' : tab === 'analyse' ? 'Analyse' : tab === 'chat' ? 'Chat' : 'Dokumente'}
                 </button>
               ))}
             </div>
@@ -340,6 +353,51 @@ export default function Dashboard() {
                     Senden
                   </button>
                 </form>
+              </div>
+            )}
+
+            {activeTab === 'dokumente' && (
+              <div>
+                {documents.length === 0 ? (
+                  <p className="text-sm text-zinc-400 text-center py-12">Noch keine Dokumente vorhanden.</p>
+                ) : (
+                  <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+                    <div className="divide-y divide-zinc-100">
+                      {documents.map((doc) => {
+                        const obsCount = doc.observations?.[0]?.count ?? 0
+                        const statusDot: Record<string, string> = {
+                          done: 'bg-green-400',
+                          processing: 'bg-blue-400 animate-pulse',
+                          error: 'bg-red-400',
+                          pending: 'bg-zinc-300',
+                        }
+                        return (
+                          <div key={doc.id} className="flex items-center gap-3 px-4 py-3">
+                            <span className="text-lg shrink-0">{doc.file_type === 'image' ? '🖼️' : '📄'}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-zinc-800 truncate">{doc.filename}</p>
+                              <p className="text-xs text-zinc-400 mt-0.5">
+                                {new Date(doc.uploaded_at).toLocaleDateString('de-DE')}
+                                {obsCount > 0 && ` · ${obsCount} Wert${obsCount !== 1 ? 'e' : ''}`}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className={`w-2 h-2 rounded-full ${statusDot[doc.extraction_status] ?? 'bg-zinc-300'}`} />
+                              <a
+                                href={`/api/documents/${doc.id}/download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors px-2 py-1 rounded border border-zinc-200 hover:border-zinc-400"
+                              >
+                                Download
+                              </a>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
