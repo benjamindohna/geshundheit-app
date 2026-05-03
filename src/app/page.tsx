@@ -149,18 +149,20 @@ export default function Dashboard() {
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <h1 className="text-base font-semibold text-zinc-900">Gesundheits-Dashboard</h1>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Link
               href="/upload"
-              className="text-sm px-3 py-1.5 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors"
+              className="text-sm px-3 py-2 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors min-h-[40px] flex items-center"
             >
-              Dokument hochladen
+              <span className="hidden sm:inline">Dokument hochladen</span>
+              <span className="sm:hidden">+ Hochladen</span>
             </Link>
             <button
               onClick={logout}
-              className="text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+              className="text-sm text-zinc-500 hover:text-zinc-700 transition-colors px-2 py-2 min-h-[40px]"
             >
-              Abmelden
+              <span className="hidden sm:inline">Abmelden</span>
+              <span className="sm:hidden" aria-label="Abmelden">✕</span>
             </button>
           </div>
         </div>
@@ -302,7 +304,7 @@ export default function Dashboard() {
             )}
 
             {activeTab === 'chat' && (
-              <div className="flex flex-col h-[60vh]">
+              <div className="flex flex-col h-[60dvh]">
                 <div className="flex-1 overflow-y-auto space-y-3 pb-4">
                   {chatMessages.length === 0 && (
                     <p className="text-sm text-zinc-400 text-center pt-8">
@@ -327,13 +329,13 @@ export default function Dashboard() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Frage stellen…"
-                    className="flex-1 px-3.5 py-2.5 text-sm rounded-lg border border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent"
+                    className="flex-1 px-3.5 py-3 text-base sm:text-sm rounded-lg border border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent"
                     disabled={chatLoading}
                   />
                   <button
                     type="submit"
                     disabled={chatLoading || !chatInput.trim()}
-                    className="px-4 py-2.5 bg-zinc-900 text-white text-sm rounded-lg hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+                    className="px-4 py-3 bg-zinc-900 text-white text-sm rounded-lg hover:bg-zinc-800 disabled:opacity-50 transition-colors min-w-[72px]"
                   >
                     Senden
                   </button>

@@ -59,21 +59,24 @@ export default function UploadPage() {
     <div className="min-h-screen bg-zinc-50">
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
-          <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-700 transition-colors">
+          <Link
+            href="/"
+            className="text-sm text-zinc-500 hover:text-zinc-700 transition-colors py-2 pr-2 min-h-[44px] flex items-center"
+          >
             ← Zurück
           </Link>
           <h1 className="text-base font-semibold text-zinc-900">Dokument hochladen</h1>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-10">
+      <main className="max-w-3xl mx-auto px-4 py-8">
         {state === 'idle' || state === 'error' ? (
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             onClick={() => inputRef.current?.click()}
-            className={`cursor-pointer rounded-2xl border-2 border-dashed p-16 text-center transition-colors ${
+            className={`cursor-pointer rounded-2xl border-2 border-dashed py-16 px-8 text-center transition-colors ${
               dragOver
                 ? 'border-zinc-400 bg-zinc-100'
                 : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
@@ -83,13 +86,15 @@ export default function UploadPage() {
               ref={inputRef}
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
+              capture="environment"
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}
             />
-            <div className="text-4xl mb-4">📄</div>
+            <div className="text-5xl mb-4">📄</div>
             <p className="text-sm font-medium text-zinc-700 mb-1">
-              Datei hier ablegen oder klicken
+              Tippen zum Auswählen
             </p>
+            <p className="text-xs text-zinc-400 mb-1">oder Datei hier ablegen</p>
             <p className="text-xs text-zinc-400">PDF, JPEG oder PNG – Blutbilder, Messwerte, Befunde</p>
             {state === 'error' && (
               <p className="mt-4 text-sm text-red-600">{error}</p>
@@ -104,22 +109,22 @@ export default function UploadPage() {
             subtitle="KI extrahiert Gesundheitswerte – das kann einen Moment dauern"
           />
         ) : (
-          <div className="bg-white rounded-2xl border border-zinc-200 p-10 text-center">
-            <div className="text-4xl mb-4">✅</div>
-            <p className="text-base font-semibold text-zinc-900 mb-1">
+          <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
+            <div className="text-5xl mb-4">✅</div>
+            <p className="text-lg font-semibold text-zinc-900 mb-1">
               {count} Messwert{count !== 1 ? 'e' : ''} extrahiert
             </p>
             <p className="text-sm text-zinc-500 mb-6">Die Werte sind jetzt im Dashboard verfügbar.</p>
-            <div className="flex gap-3 justify-center">
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href="/"
-                className="px-4 py-2 bg-zinc-900 text-white text-sm rounded-lg hover:bg-zinc-800 transition-colors"
+                className="px-5 py-3 bg-zinc-900 text-white text-sm font-medium rounded-xl hover:bg-zinc-800 transition-colors text-center"
               >
                 Zum Dashboard
               </Link>
               <button
                 onClick={() => setState('idle')}
-                className="px-4 py-2 border border-zinc-300 text-zinc-700 text-sm rounded-lg hover:bg-zinc-50 transition-colors"
+                className="px-5 py-3 border border-zinc-300 text-zinc-700 text-sm font-medium rounded-xl hover:bg-zinc-50 transition-colors"
               >
                 Weiteres Dokument
               </button>
@@ -134,7 +139,7 @@ export default function UploadPage() {
 function StatusCard({ icon, title, subtitle }: { icon: string; title: string; subtitle: string }) {
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-10 text-center">
-      <div className="text-4xl mb-4 animate-pulse">{icon}</div>
+      <div className="text-5xl mb-4 animate-pulse">{icon}</div>
       <p className="text-base font-semibold text-zinc-900 mb-1">{title}</p>
       <p className="text-sm text-zinc-500">{subtitle}</p>
     </div>
