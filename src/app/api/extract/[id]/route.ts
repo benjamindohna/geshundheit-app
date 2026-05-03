@@ -12,38 +12,53 @@ const VALID_CATEGORIES = [
   'Sonstiges',
 ] as const
 
-const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument vollständig.
+const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument vollständig und erfasse ALLE gesundheitsrelevanten Informationen – nicht nur Messwerte mit Zahlen, sondern auch Medikamente, Diagnosen, Empfehlungen und Befunde.
 
 Gib ein JSON-Objekt mit folgenden Feldern zurück:
 
 "label": Ein präziser, beschreibender deutscher Titel für dieses Dokument (max. 60 Zeichen).
-Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Radiologie Muster", "Arztbrief Kardiologie – Entlassung Jan 2025"
+Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Radiologie Muster", "Medikamentenplan – Dr. Müller, Jan 2025"
 
 "categories": Array mit 1–3 passenden Kategorien aus dieser Liste (nur exakt diese Werte):
 ["Laborwerte", "Bildgebung", "Arztbrief", "Messwerte", "Medikamente", "Impfungen", "Sonstiges"]
-- Laborwerte: Blutbilder, Urin, alle Labor-PDFs mit Messwerten
-- Bildgebung: Röntgen, MRT, CT, Ultraschall, Szintigrafie
-- Arztbrief: Befundberichte, Entlassungsbriefe, Überweisungen, Atteste
-- Messwerte: Selbst gemessene Werte (Blutdruckprotokoll, Gewichtsverlauf)
-- Medikamente: Rezepte, Medikationspläne, Packungsbeilagen
-- Impfungen: Impfausweis, Impfbescheinigungen
-- Sonstiges: Alles andere
 
-"keywords": Array mit 6–12 deutschen Suchbegriffen (Fachbegriffe, Messwerte, Arztname, Körperteil, Datum, Institution – was zum Wiederfinden hilft)
+"keywords": Array mit 6–12 deutschen Suchbegriffen
 
-"observations": Array aller messbaren Gesundheitswerte. Jedes Objekt hat:
-- display_name: string (deutscher Name, z.B. "Hämoglobin")
+"observations": Array mit ALLEN gesundheitsrelevanten Einträgen aus dem Dokument.
+Erfasse jeden Eintrag – egal ob mit Zahlenwert oder ohne. Konkret:
+
+Typ 1 – Messwerte (value ist eine Zahl):
+  Blutbild, Vitalwerte, Labor, Körpermaße etc.
+  → value: Zahl, unit: Einheit, reference_range_* falls vorhanden
+
+Typ 2 – Medikamente & Supplements (value = null):
+  Jedes Medikament, Supplement, Naturheilmittel als eigener Eintrag.
+  → display_name: Produktname (z.B. "Bittersalz", "Mundöl", "Magnesium")
+  → value_text: Dosierung + Anweisung falls vorhanden (z.B. "1 TL morgens nüchtern", "nach Bedarf")
+  → status: "normal" (sofern keine Warnung angegeben)
+  → clinical_severity: 1–3 für Supplements, 4–7 für verschreibungspflichtige Medikamente
+
+Typ 3 – Diagnosen & Befunde (value = null):
+  Bestätigte oder vermutete Diagnosen, qualitative Bildgebungsbefunde.
+  → display_name: Diagnose/Befund (z.B. "Eisenmangel", "Kniearthrose Grad 2")
+  → value_text: Status oder Details (z.B. "bestätigt", "V.a.", "unauffällig", Befundtext)
+  → clinical_severity: je nach Schwere der Diagnose (1–10)
+
+Typ 4 – Empfehlungen & Anweisungen (value = null):
+  Lifestyle-Empfehlungen, Ernährungshinweise, Verhaltensanweisungen.
+  → display_name: Kurzname der Empfehlung (z.B. "Gründliches Kauen", "Ausreichend Hydration")
+  → value_text: Detailtext falls vorhanden
+  → clinical_severity: 1–2
+
+Alle Einträge haben außerdem:
 - loinc_code: string | null
-- value: number | null
-- value_text: string | null (z.B. "positiv", "unauffällig")
-- unit: string | null
 - reference_range_low: number | null
 - reference_range_high: number | null
 - reference_range_text: string | null
 - status: "normal" | "borderline" | "abnormal" | "critical"
-- clinical_severity: number 1–10 (Relevanz bei Abweichung; 1=harmlos, 10=lebensbedrohlich)
 - measured_at: string (ISO-Datum; falls unbekannt: ${new Date().toISOString().split('T')[0]})
 - volatility: "high" | "medium" | "low"
+  (Medikamente/Diagnosen → "low", Empfehlungen → "low", Laborwerte → je nach Typ)
 
 Antworte NUR mit dem JSON-Objekt, ohne Markdown oder Erklärungen.`
 

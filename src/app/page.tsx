@@ -256,7 +256,8 @@ export default function Dashboard() {
             {activeTab === 'werte' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {allSorted.map((o) => {
-                  const val = o.value != null
+                  const hasNumber = o.value != null
+                  const val = hasNumber
                     ? `${o.value}${o.unit ? ' ' + o.unit : ''}`
                     : o.value_text ?? '–'
                   const ref = o.reference_range_text
@@ -272,8 +273,14 @@ export default function Dashboard() {
                           {statusLabel[o.status as keyof typeof statusLabel] ?? o.status}
                         </span>
                       </div>
-                      <p className="text-2xl font-semibold text-zinc-900">{val}</p>
-                      {ref && <p className="text-xs text-zinc-400 mt-1">Ref: {ref}</p>}
+                      {hasNumber ? (
+                        <>
+                          <p className="text-2xl font-semibold text-zinc-900">{val}</p>
+                          {ref && <p className="text-xs text-zinc-400 mt-1">Ref: {ref}</p>}
+                        </>
+                      ) : (
+                        <p className="text-sm text-zinc-600 leading-snug">{val}</p>
+                      )}
                       <p className="text-xs text-zinc-400 mt-1">{o.measured_at}</p>
                     </div>
                   )
