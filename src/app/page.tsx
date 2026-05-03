@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type Observation = {
   id: string
@@ -366,7 +368,26 @@ export default function Dashboard() {
                           ? 'bg-zinc-900 text-white'
                           : 'bg-white border border-zinc-200 text-zinc-800'
                       }`}>
-                        {msg.content || (msg.role === 'assistant' && chatLoading ? '…' : '')}
+                        {msg.role === 'user' ? (
+                          msg.content
+                        ) : msg.content ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                              strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                              li: ({ children }) => <li>{children}</li>,
+                              h1: ({ children }) => <p className="font-semibold mb-1">{children}</p>,
+                              h2: ({ children }) => <p className="font-semibold mb-1">{children}</p>,
+                              h3: ({ children }) => <p className="font-medium mb-1">{children}</p>,
+                              code: ({ children }) => <code className="bg-zinc-100 px-1 rounded text-xs">{children}</code>,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        ) : chatLoading ? '…' : ''}
                       </div>
                     </div>
                   ))}
