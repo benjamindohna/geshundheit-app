@@ -46,7 +46,7 @@ export default function UploadPage() {
       const formData = new FormData()
       formData.append('file', entries[i].file)
 
-      let uploadData: { document?: { id: string }; duplicate?: boolean; error?: string }
+      let uploadData: { document?: { id: string }; duplicate?: boolean; needsReview?: boolean; error?: string }
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData })
         uploadData = await res.json()
@@ -64,9 +64,8 @@ export default function UploadPage() {
         continue
       }
 
-      // PDFs → review page, images → direct extraction
-      const isPdf = entries[i].file.type === 'application/pdf'
-      if (isPdf) {
+      // Multi-page PDFs → review, single-page PDFs and images → direct extraction
+      if (uploadData.needsReview) {
         updateEntry(i, { status: 'needs-review', reviewId: uploadData.document!.id })
         continue
       }
