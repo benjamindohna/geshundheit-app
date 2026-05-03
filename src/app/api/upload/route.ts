@@ -20,9 +20,17 @@ export async function POST(request: NextRequest) {
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
 
-  const { error: uploadError } = await supabase.storage
+  let { error: uploadError } = await supabase.storage
     .from('health-docs')
     .upload(storagePath, buffer, { contentType: file.type })
+
+  if (uploadError?.message?.includes('Bucket not found') || uploadError?.message?.includes('does not exist')) {
+    await supabase.storage.createBucket('health-docs', { public: false })
+    const retry = await supabase.storage
+      .from('health-docs')
+      .upload(storagePath, buffer, { contentType: file.type })
+    uploadError = retry.error
+  }
 
   if (uploadError) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 })
