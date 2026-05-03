@@ -3,13 +3,14 @@
 import { useState, useRef } from 'react'
 import Link from 'next/link'
 
-type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'duplicate' | 'error'
+type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'duplicate' | 'needs-review' | 'error'
 
 type FileEntry = {
   file: File
   status: FileStatus
   error?: string
   count?: number
+  reviewId?: string  // doc ID for PDFs that need review
 }
 
 export default function UploadPage() {
@@ -60,6 +61,13 @@ export default function UploadPage() {
 
       if (uploadData.duplicate) {
         updateEntry(i, { status: 'duplicate' })
+        continue
+      }
+
+      // PDFs → review page, images → direct extraction
+      const isPdf = entries[i].file.type === 'application/pdf'
+      if (isPdf) {
+        updateEntry(i, { status: 'needs-review', reviewId: uploadData.document!.id })
         continue
       }
 
@@ -177,10 +185,23 @@ export default function UploadPage() {
                     {entry.status === 'extracting' && (
                       <p className="text-xs text-zinc-400 mt-0.5">Claude analysiert…</p>
                     )}
+                    {entry.status === 'needs-review' && (
+                      <p className="text-xs text-blue-600 mt-0.5">PDF bereit zur Prüfung</p>
+                    )}
                   </div>
-                  <span className="text-xs text-zinc-400 shrink-0">
-                    {(entry.file.size / 1024).toFixed(0)} KB
-                  </span>
+                  <div className="shrink-0 flex items-center gap-2">
+                    <span className="text-xs text-zinc-400">
+                      {(entry.file.size / 1024).toFixed(0)} KB
+                    </span>
+                    {entry.status === 'needs-review' && entry.reviewId && (
+                      <Link
+                        href={`/review/${entry.reviewId}`}
+                        className="text-xs px-2.5 py-1.5 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors"
+                      >
+                        Prüfen →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -239,6 +260,7 @@ function StatusIcon({ status }: { status: FileStatus }) {
     extracting: '🔬',
     done: '✓',
     duplicate: '↩',
+    'needs-review': '📋',
     error: '✕',
   }
   const colors: Record<FileStatus, string> = {
@@ -247,6 +269,7 @@ function StatusIcon({ status }: { status: FileStatus }) {
     extracting: 'text-blue-500',
     done: 'text-green-500',
     duplicate: 'text-zinc-400',
+    'needs-review': 'text-blue-500',
     error: 'text-red-500',
   }
   return (

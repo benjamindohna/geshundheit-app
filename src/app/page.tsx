@@ -44,6 +44,9 @@ type Document = {
   uploaded_at: string
   extraction_status: string
   file_type: string
+  parent_id: string | null
+  page_start: number | null
+  page_end: number | null
   observations: { count: number }[]
 }
 
@@ -429,6 +432,7 @@ export default function Dashboard() {
                 ) : (() => {
                   const q = docSearch.toLowerCase().trim()
                   const filtered = documents.filter((doc) => {
+                    if (doc.extraction_status === 'split') return false
                     const matchesSearch = !q || [
                       doc.label,
                       doc.filename,
@@ -484,6 +488,7 @@ export default function Dashboard() {
                                     <span className="text-xs text-zinc-400">
                                       {new Date(doc.uploaded_at).toLocaleDateString('de-DE')}
                                       {obsCount > 0 && ` · ${obsCount} Wert${obsCount !== 1 ? 'e' : ''}`}
+                                      {doc.page_start != null && ` · S. ${doc.page_start}${doc.page_end !== doc.page_start ? `–${doc.page_end}` : ''}`}
                                     </span>
                                   </div>
                                 </div>
