@@ -2,23 +2,50 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { anthropic } from '@/lib/anthropic'
 
-const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument und extrahiere alle messbaren Gesundheitswerte.
+const VALID_CATEGORIES = [
+  'Laborwerte',
+  'Bildgebung',
+  'Arztbrief',
+  'Messwerte',
+  'Medikamente',
+  'Impfungen',
+  'Sonstiges',
+] as const
 
-Gib die Daten als JSON-Array zurück. Jedes Objekt hat folgende Felder:
-- display_name: string (deutscher Name des Wertes, z.B. "Hämoglobin", "Blutdruck systolisch", "Körpergewicht")
-- loinc_code: string | null (LOINC-Code wenn bekannt)
-- value: number | null (numerischer Wert)
-- value_text: string | null (Text wenn kein numerischer Wert, z.B. "positiv", "negativ")
-- unit: string | null (Einheit, z.B. "g/dL", "mmHg", "kg")
+const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument vollständig.
+
+Gib ein JSON-Objekt mit folgenden Feldern zurück:
+
+"label": Ein präziser, beschreibender deutscher Titel für dieses Dokument (max. 60 Zeichen).
+Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Radiologie Muster", "Arztbrief Kardiologie – Entlassung Jan 2025"
+
+"categories": Array mit 1–3 passenden Kategorien aus dieser Liste (nur exakt diese Werte):
+["Laborwerte", "Bildgebung", "Arztbrief", "Messwerte", "Medikamente", "Impfungen", "Sonstiges"]
+- Laborwerte: Blutbilder, Urin, alle Labor-PDFs mit Messwerten
+- Bildgebung: Röntgen, MRT, CT, Ultraschall, Szintigrafie
+- Arztbrief: Befundberichte, Entlassungsbriefe, Überweisungen, Atteste
+- Messwerte: Selbst gemessene Werte (Blutdruckprotokoll, Gewichtsverlauf)
+- Medikamente: Rezepte, Medikationspläne, Packungsbeilagen
+- Impfungen: Impfausweis, Impfbescheinigungen
+- Sonstiges: Alles andere
+
+"keywords": Array mit 6–12 deutschen Suchbegriffen (Fachbegriffe, Messwerte, Arztname, Körperteil, Datum, Institution – was zum Wiederfinden hilft)
+
+"observations": Array aller messbaren Gesundheitswerte. Jedes Objekt hat:
+- display_name: string (deutscher Name, z.B. "Hämoglobin")
+- loinc_code: string | null
+- value: number | null
+- value_text: string | null (z.B. "positiv", "unauffällig")
+- unit: string | null
 - reference_range_low: number | null
 - reference_range_high: number | null
-- reference_range_text: string | null (Referenzbereich als Text falls vorhanden)
-- status: "normal" | "borderline" | "abnormal" | "critical" (basierend auf dem Referenzbereich)
-- clinical_severity: number 1-10 (1=harmlos, 10=lebensbedrohlich, bewertet nach medizinischer Relevanz von Abweichungen)
-- measured_at: string (ISO-Datum des Messzeitpunkts, falls nicht im Dokument: heute ${new Date().toISOString().split('T')[0]})
-- volatility: "high" | "medium" | "low" (wie schnell ändert sich dieser Wert typischerweise)
+- reference_range_text: string | null
+- status: "normal" | "borderline" | "abnormal" | "critical"
+- clinical_severity: number 1–10 (Relevanz bei Abweichung; 1=harmlos, 10=lebensbedrohlich)
+- measured_at: string (ISO-Datum; falls unbekannt: ${new Date().toISOString().split('T')[0]})
+- volatility: "high" | "medium" | "low"
 
-Antworte NUR mit dem JSON-Array, ohne Markdown-Code-Blöcke oder Erklärungen.`
+Antworte NUR mit dem JSON-Objekt, ohne Markdown oder Erklärungen.`
 
 type DocumentRow = {
   id: string
@@ -26,6 +53,13 @@ type DocumentRow = {
   storage_path: string
   file_type: string
   extraction_status: string
+}
+
+type ExtractionResult = {
+  label: string
+  categories: string[]
+  keywords: string[]
+  observations: Record<string, unknown>[]
 }
 
 export async function POST(
@@ -69,18 +103,12 @@ export async function POST(
         ? 'image/png'
         : 'image/jpeg'
       messageContent = [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: mimeType, data: base64 },
-        },
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
         { type: 'text', text: EXTRACTION_PROMPT },
       ]
     } else {
       messageContent = [
-        {
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-        },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
         { type: 'text', text: EXTRACTION_PROMPT },
       ]
     }
@@ -93,11 +121,19 @@ export async function POST(
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const observations = JSON.parse(cleaned) as Record<string, unknown>[]
+    const result = JSON.parse(cleaned) as ExtractionResult
 
-    if (!Array.isArray(observations)) {
-      throw new Error('Ungültiges Format von Claude')
-    }
+    // Validate categories – keep only known values
+    const categories = Array.isArray(result.categories)
+      ? result.categories.filter((c) => (VALID_CATEGORIES as readonly string[]).includes(c))
+      : ['Sonstiges']
+
+    const keywords = Array.isArray(result.keywords) ? result.keywords : []
+    const label = typeof result.label === 'string' && result.label.trim()
+      ? result.label.trim()
+      : doc.filename
+
+    const observations = Array.isArray(result.observations) ? result.observations : []
 
     const rows = observations.map((obs) => ({
       document_id: id,
@@ -115,15 +151,23 @@ export async function POST(
       volatility: obs.volatility ?? 'medium',
     }))
 
-    const { error: insertError } = await supabase.from('observations').insert(rows)
-    if (insertError) throw new Error(insertError.message)
+    if (rows.length > 0) {
+      const { error: insertError } = await supabase.from('observations').insert(rows)
+      if (insertError) throw new Error(insertError.message)
+    }
 
     await supabase
       .from('documents')
-      .update({ extraction_status: 'done', processed_at: new Date().toISOString() })
+      .update({
+        extraction_status: 'done',
+        processed_at: new Date().toISOString(),
+        label,
+        categories,
+        keywords,
+      })
       .eq('id', id)
 
-    return NextResponse.json({ count: rows.length })
+    return NextResponse.json({ count: rows.length, label, categories })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unbekannter Fehler'
     await supabase

@@ -38,10 +38,33 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string }
 type Document = {
   id: string
   filename: string
+  label: string | null
+  categories: string[]
+  keywords: string[] | null
   uploaded_at: string
   extraction_status: string
   file_type: string
   observations: { count: number }[]
+}
+
+const ALL_CATEGORIES = [
+  'Laborwerte',
+  'Bildgebung',
+  'Arztbrief',
+  'Messwerte',
+  'Medikamente',
+  'Impfungen',
+  'Sonstiges',
+] as const
+
+const categoryStyle: Record<string, string> = {
+  Laborwerte:  'bg-blue-50 text-blue-700 border-blue-200',
+  Bildgebung:  'bg-purple-50 text-purple-700 border-purple-200',
+  Arztbrief:   'bg-slate-50 text-slate-600 border-slate-200',
+  Messwerte:   'bg-teal-50 text-teal-700 border-teal-200',
+  Medikamente: 'bg-orange-50 text-orange-700 border-orange-200',
+  Impfungen:   'bg-green-50 text-green-700 border-green-200',
+  Sonstiges:   'bg-zinc-50 text-zinc-600 border-zinc-200',
 }
 
 const statusColor = {
@@ -76,6 +99,8 @@ export default function Dashboard() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [docSearch, setDocSearch] = useState('')
+  const [docCategoryFilter, setDocCategoryFilter] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'werte' | 'analyse' | 'chat' | 'dokumente'>('werte')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -357,47 +382,130 @@ export default function Dashboard() {
             )}
 
             {activeTab === 'dokumente' && (
-              <div>
+              <div className="space-y-4">
+                {/* Search */}
+                <input
+                  type="search"
+                  value={docSearch}
+                  onChange={(e) => setDocSearch(e.target.value)}
+                  placeholder="Dokumente suchen…"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent bg-white"
+                />
+
+                {/* Category filter */}
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setDocCategoryFilter([])}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      docCategoryFilter.length === 0
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400'
+                    }`}
+                  >
+                    Alle
+                  </button>
+                  {ALL_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() =>
+                        setDocCategoryFilter((prev) =>
+                          prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+                        )
+                      }
+                      className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                        docCategoryFilter.includes(cat)
+                          ? categoryStyle[cat]
+                          : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Document list */}
                 {documents.length === 0 ? (
                   <p className="text-sm text-zinc-400 text-center py-12">Noch keine Dokumente vorhanden.</p>
-                ) : (
-                  <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-                    <div className="divide-y divide-zinc-100">
-                      {documents.map((doc) => {
-                        const obsCount = doc.observations?.[0]?.count ?? 0
-                        const statusDot: Record<string, string> = {
-                          done: 'bg-green-400',
-                          processing: 'bg-blue-400 animate-pulse',
-                          error: 'bg-red-400',
-                          pending: 'bg-zinc-300',
-                        }
-                        return (
-                          <div key={doc.id} className="flex items-center gap-3 px-4 py-3">
-                            <span className="text-lg shrink-0">{doc.file_type === 'image' ? '🖼️' : '📄'}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-zinc-800 truncate">{doc.filename}</p>
-                              <p className="text-xs text-zinc-400 mt-0.5">
-                                {new Date(doc.uploaded_at).toLocaleDateString('de-DE')}
-                                {obsCount > 0 && ` · ${obsCount} Wert${obsCount !== 1 ? 'e' : ''}`}
-                              </p>
+                ) : (() => {
+                  const q = docSearch.toLowerCase().trim()
+                  const filtered = documents.filter((doc) => {
+                    const matchesSearch = !q || [
+                      doc.label,
+                      doc.filename,
+                      ...(doc.keywords ?? []),
+                    ].some((s) => s?.toLowerCase().includes(q))
+                    const matchesCat =
+                      docCategoryFilter.length === 0 ||
+                      (doc.categories ?? []).some((c) => docCategoryFilter.includes(c))
+                    return matchesSearch && matchesCat
+                  })
+
+                  if (filtered.length === 0) {
+                    return <p className="text-sm text-zinc-400 text-center py-8">Keine Dokumente gefunden.</p>
+                  }
+
+                  const statusDot: Record<string, string> = {
+                    done: 'bg-green-400',
+                    processing: 'bg-blue-400 animate-pulse',
+                    error: 'bg-red-400',
+                    pending: 'bg-zinc-300',
+                  }
+
+                  return (
+                    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+                      <div className="divide-y divide-zinc-100">
+                        {filtered.map((doc) => {
+                          const obsCount = doc.observations?.[0]?.count ?? 0
+                          const displayLabel = doc.label || doc.filename
+                          const showFilename = doc.label && doc.label !== doc.filename
+
+                          return (
+                            <div key={doc.id} className="px-4 py-3">
+                              <div className="flex items-start gap-3">
+                                <span className="text-lg shrink-0 mt-0.5">
+                                  {doc.file_type === 'image' ? '🖼️' : '📄'}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-zinc-900 leading-snug">
+                                    {displayLabel}
+                                  </p>
+                                  {showFilename && (
+                                    <p className="text-xs text-zinc-400 mt-0.5 truncate">{doc.filename}</p>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                    {(doc.categories ?? []).map((cat) => (
+                                      <span
+                                        key={cat}
+                                        className={`text-xs px-2 py-0.5 rounded-full border ${categoryStyle[cat] ?? 'bg-zinc-50 text-zinc-600 border-zinc-200'}`}
+                                      >
+                                        {cat}
+                                      </span>
+                                    ))}
+                                    <span className="text-xs text-zinc-400">
+                                      {new Date(doc.uploaded_at).toLocaleDateString('de-DE')}
+                                      {obsCount > 0 && ` · ${obsCount} Wert${obsCount !== 1 ? 'e' : ''}`}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                                  <span className={`w-2 h-2 rounded-full ${statusDot[doc.extraction_status] ?? 'bg-zinc-300'}`} />
+                                  <a
+                                    href={`/api/documents/${doc.id}/download`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors px-2 py-1.5 rounded border border-zinc-200 hover:border-zinc-400"
+                                  >
+                                    Download
+                                  </a>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                              <span className={`w-2 h-2 rounded-full ${statusDot[doc.extraction_status] ?? 'bg-zinc-300'}`} />
-                              <a
-                                href={`/api/documents/${doc.id}/download`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors px-2 py-1 rounded border border-zinc-200 hover:border-zinc-400"
-                              >
-                                Download
-                              </a>
-                            </div>
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             )}
           </>
