@@ -21,11 +21,10 @@ export default function LoginPage() {
     })
 
     if (res.ok) {
-      router.push('/')
-      router.refresh()
+      window.location.href = '/'
     } else {
-      const data = await res.json()
-      setError(data.error || 'Fehler beim Einloggen')
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Falsches Passwort')
       setLoading(false)
     }
   }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { anthropic } from '@/lib/anthropic'
+import { generateMissingDescriptions } from '@/lib/descriptions'
+import { getCached, setCached } from '@/lib/extraction-cache'
 
 const VALID_CATEGORIES = [
   'Laborwerte',
@@ -12,55 +14,64 @@ const VALID_CATEGORIES = [
   'Sonstiges',
 ] as const
 
-const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument vollständig und erfasse ALLE gesundheitsrelevanten Informationen – nicht nur Messwerte mit Zahlen, sondern auch Medikamente, Diagnosen, Empfehlungen und Befunde.
+const EXTRACTION_PROMPT = `Du bist ein medizinischer Datenextraktions-Assistent. Analysiere dieses Gesundheitsdokument und erfasse alle objektiven Gesundheitsmesswerte und Befunde.
 
 Gib ein JSON-Objekt mit folgenden Feldern zurück:
 
 "label": Ein präziser, beschreibender deutscher Titel für dieses Dokument (max. 60 Zeichen).
-Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Radiologie Muster", "Medikamentenplan – Dr. Müller, Jan 2025"
+Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Radiologie Muster"
 
 "categories": Array mit 1–3 passenden Kategorien aus dieser Liste (nur exakt diese Werte):
 ["Laborwerte", "Bildgebung", "Arztbrief", "Messwerte", "Medikamente", "Impfungen", "Sonstiges"]
 
 "keywords": Array mit 6–12 deutschen Suchbegriffen
 
-"observations": Array mit ALLEN gesundheitsrelevanten Einträgen aus dem Dokument.
-Erfasse jeden Eintrag – egal ob mit Zahlenwert oder ohne. Konkret:
+"observations": Nur klinisch anerkannte Messwerte und medizinische Befunde, die die allgemeine Gesundheit abbilden.
 
-Typ 1 – Messwerte (value ist eine Zahl):
-  Blutbild, Vitalwerte, Labor, Körpermaße etc.
-  → value: Zahl, unit: Einheit, reference_range_* falls vorhanden
+NICHT in observations erfassen (explizit ausschließen):
+- Allergen- und Unverträglichkeitstests (IgG, IgE, Histamin-Intoleranz, Nahrungsmittel-Panels) — diese kommen in "allergens"
+- Wellness-Scores, gerätespezifische Indizes ohne klinische Norm (z.B. Stoffwechselindex %, Zuckerverbrennung %, biologisches Alter, Fitness-Score, Stresslevel-Index)
+- Medikamente, Supplements, Behandlungen, Massagen
+- Ernährungsempfehlungen, Verhaltensanweisungen
+- Rechnungen, administrative Daten, Versicherungsinformationen
+- Nicht-medizinische Dokumente (wenn das Dokument kein Gesundheitsdokument ist: observations = [])
 
-Typ 2 – Medikamente & Supplements (value = null):
-  Jedes Medikament, Supplement, Naturheilmittel als eigener Eintrag.
-  → display_name: Produktname (z.B. "Bittersalz", "Mundöl", "Magnesium")
-  → value_text: Dosierung + Anweisung falls vorhanden (z.B. "1 TL morgens nüchtern", "nach Bedarf")
-  → status: "normal" (sofern keine Warnung angegeben)
-  → clinical_severity: 1–3 für Supplements, 4–7 für verschreibungspflichtige Medikamente
+Erfasse in observations ausschließlich Werte mit anerkannten klinischen Referenzbereichen:
+- Laborwerte: Blutbild (Hb, Hkt, Leukozyten, Thrombozyten etc.), Stoffwechsel (Glukose, HbA1c, Insulin), Lipide (LDL, HDL, Triglyzeride), Leber (GOT, GPT, GGT), Niere (Kreatinin, GFR, Harnstoff), Schilddrüse (TSH, fT3, fT4), Entzündung (CRP, BSG), Vitamine/Mineralien (Ferritin, Vitamin D, B12, Magnesium etc.), Hormone
+- Vitalparameter: Blutdruck, Puls, Körpertemperatur, Sauerstoffsättigung
+- Körpermessungen: Gewicht (kg), Größe (cm), BMI, Körperfettanteil (%), Muskelmasse (kg), Taillenumfang
+- Medizinische Befunde und Diagnosen: Bildgebungsbefunde, Pathologiebefunde, ärztlich festgestellte Diagnosen
 
-Typ 3 – Diagnosen & Befunde (value = null):
-  Bestätigte oder vermutete Diagnosen, qualitative Bildgebungsbefunde.
-  → display_name: Diagnose/Befund (z.B. "Eisenmangel", "Kniearthrose Grad 2")
-  → value_text: Status oder Details (z.B. "bestätigt", "V.a.", "unauffällig", Befundtext)
-  → clinical_severity: je nach Schwere der Diagnose (1–10)
-
-Typ 4 – Empfehlungen & Anweisungen (value = null):
-  Lifestyle-Empfehlungen, Ernährungshinweise, Verhaltensanweisungen.
-  → display_name: Kurzname der Empfehlung (z.B. "Gründliches Kauen", "Ausreichend Hydration")
-  → value_text: Detailtext falls vorhanden
-  → clinical_severity: 1–2
-
-Alle Einträge haben außerdem:
-- loinc_code: string | null
+Für jeden observations-Eintrag:
+- display_name: Klinische Bezeichnung
+- loinc_code: LOINC code as string (e.g. "2160-0") — provide whenever a standard LOINC code exists for this measurement; null only if no LOINC code is defined for this type
+- value: Zahl | null (null bei qualitativen Befunden)
+- value_text: string | null (Befundtext, null bei Zahlenwerten)
+- unit: string | null
 - reference_range_low: number | null
 - reference_range_high: number | null
 - reference_range_text: string | null
 - status: "normal" | "borderline" | "abnormal" | "critical"
-- measured_at: string (ISO-Datum; falls unbekannt: ${new Date().toISOString().split('T')[0]})
+  Priorität 1: Referenzbereich aus dem Dokument.
+  Priorität 2: Anerkannte klinische Normen (z.B. LDL < 3,0 mmol/L, TSH 0,4–4,0 mU/L).
+  "critical" nur bei Werten mit unmittelbarer klinischer Relevanz (weit außerhalb etablierter Normen).
+  Interpretationstexte des Dokuments NICHT für die Statusbewertung verwenden.
+- clinical_severity: 1–10 (1 = unauffällig, 10 = unmittelbar behandlungsbedürftig)
+- measured_at: string (ISO-Datum aus dem Dokument; falls unbekannt: TODAY_DATE)
 - volatility: "high" | "medium" | "low"
-  (Medikamente/Diagnosen → "low", Empfehlungen → "low", Laborwerte → je nach Typ)
+
+"allergens": Nur befüllen wenn dieses Dokument ein Allergen- oder Unverträglichkeitspanel enthält (IgG, IgE, Nahrungsmittel-Tests).
+- Erfasse NUR Einträge mit erhöhter Reaktion (IgG/IgE Klasse ≥ 2 oder gleichwertiger Schwellenwert)
+- Klasse 0 und 1 (keine oder minimale Reaktion) → NICHT erfassen
+- severity basiert auf Klasse: 4 → "komplett vermeiden", 3 → "stark reduzieren", 2 → "gelegentlich"
+- common_foods: 3–5 typische Lebensmittel die dieses Allergen enthalten (auf Deutsch)
+- Format: [{"name": "Allergenname", "severity": "komplett vermeiden"|"stark reduzieren"|"gelegentlich", "common_foods": ["Lebensmittel1", ...]}]
+- Falls kein Allergenpanel im Dokument: []
 
 Antworte NUR mit dem JSON-Objekt, ohne Markdown oder Erklärungen.`
+
+const TODAY = new Date().toISOString().split('T')[0]
+const PROMPT_WITH_DATE = EXTRACTION_PROMPT.replace('TODAY_DATE', TODAY)
 
 type DocumentRow = {
   id: string
@@ -68,6 +79,13 @@ type DocumentRow = {
   storage_path: string
   file_type: string
   extraction_status: string
+  content_hash: string
+}
+
+type AllergenResult = {
+  name: string
+  severity: string
+  common_foods: string[]
 }
 
 type ExtractionResult = {
@@ -75,6 +93,7 @@ type ExtractionResult = {
   categories: string[]
   keywords: string[]
   observations: Record<string, unknown>[]
+  allergens?: AllergenResult[]
 }
 
 export async function POST(
@@ -99,46 +118,54 @@ export async function POST(
     .eq('id', id)
 
   try {
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from('health-docs')
-      .download(doc.storage_path)
+    let result: ExtractionResult
 
-    if (downloadError || !fileData) {
-      throw new Error(downloadError?.message ?? 'Download fehlgeschlagen')
-    }
-
-    const arrayBuffer = await fileData.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
-
-    type MessageParam = Parameters<typeof anthropic.messages.create>[0]['messages'][number]
-    let messageContent: MessageParam['content']
-
-    if (doc.file_type === 'image') {
-      const mimeType = doc.storage_path.toLowerCase().endsWith('.png')
-        ? 'image/png'
-        : 'image/jpeg'
-      messageContent = [
-        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-        { type: 'text', text: EXTRACTION_PROMPT },
-      ]
+    const cached = getCached(doc.content_hash)
+    if (cached) {
+      result = cached
     } else {
-      messageContent = [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-        { type: 'text', text: EXTRACTION_PROMPT },
-      ]
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from('health-docs')
+        .download(doc.storage_path)
+
+      if (downloadError || !fileData) {
+        throw new Error(downloadError?.message ?? 'Download fehlgeschlagen')
+      }
+
+      const arrayBuffer = await fileData.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString('base64')
+
+      type MessageParam = Parameters<typeof anthropic.messages.create>[0]['messages'][number]
+      let messageContent: MessageParam['content']
+
+      if (doc.file_type === 'image') {
+        const mimeType = doc.storage_path.toLowerCase().endsWith('.png')
+          ? 'image/png'
+          : 'image/jpeg'
+        messageContent = [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+          { type: 'text', text: PROMPT_WITH_DATE },
+        ]
+      } else {
+        messageContent = [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: PROMPT_WITH_DATE },
+        ]
+      }
+
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16000,
+        messages: [{ role: 'user', content: messageContent }],
+      })
+
+      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      result = JSON.parse(cleaned) as ExtractionResult
+
+      setCached(doc.content_hash, result)
     }
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: messageContent }],
-    })
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const result = JSON.parse(cleaned) as ExtractionResult
-
-    // Validate categories – keep only known values
     const categories = Array.isArray(result.categories)
       ? result.categories.filter((c) => (VALID_CATEGORIES as readonly string[]).includes(c))
       : ['Sonstiges']
@@ -162,7 +189,7 @@ export async function POST(
       reference_range_text: obs.reference_range_text ?? null,
       status: obs.status ?? 'normal',
       clinical_severity: obs.clinical_severity ?? 1,
-      measured_at: obs.measured_at ?? new Date().toISOString().split('T')[0],
+      measured_at: obs.measured_at ?? TODAY,
       volatility: obs.volatility ?? 'medium',
     }))
 
@@ -182,7 +209,24 @@ export async function POST(
       })
       .eq('id', id)
 
-    return NextResponse.json({ count: rows.length, label, categories })
+    void generateMissingDescriptions(rows.map((r) => r.display_name as string)).catch(console.error)
+
+    const allergenRows = (Array.isArray(result.allergens) ? result.allergens : [])
+      .filter((a) => a.name && a.severity)
+      .map((a) => ({
+        document_id: id,
+        name: String(a.name),
+        severity: String(a.severity),
+        common_foods: Array.isArray(a.common_foods) ? a.common_foods.map(String) : [],
+        updated_at: new Date().toISOString(),
+      }))
+
+    if (allergenRows.length > 0) {
+      await supabase.from('allergens').delete().eq('document_id', id)
+      await supabase.from('allergens').insert(allergenRows)
+    }
+
+    return NextResponse.json({ count: rows.length, allergenCount: allergenRows.length, label, categories })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unbekannter Fehler'
     await supabase

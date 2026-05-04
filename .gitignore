@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local caches (personal health data, never commit)
+extraction-cache.json
+descriptions-cache.json

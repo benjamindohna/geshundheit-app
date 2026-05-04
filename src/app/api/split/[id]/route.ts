@@ -61,7 +61,7 @@ export async function POST(
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
+    max_tokens: 8192,
     messages: [{
       role: 'user',
       content: [
@@ -73,9 +73,19 @@ export async function POST(
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-  const result = JSON.parse(cleaned) as {
-    total_pages: number
-    groups: { label: string; categories: string[]; page_start: number; page_end: number }[]
+
+  // Extract just the JSON object in case Claude added surrounding text
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    return NextResponse.json({ error: 'Kein JSON in der Antwort gefunden' }, { status: 500 })
+  }
+
+  let result: { total_pages: number; groups: { label: string; categories: string[]; page_start: number; page_end: number }[] }
+  try {
+    result = JSON.parse(jsonMatch[0])
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'JSON-Fehler'
+    return NextResponse.json({ error: `JSON ungültig: ${msg}` }, { status: 500 })
   }
 
   return NextResponse.json(result)

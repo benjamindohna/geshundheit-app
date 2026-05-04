@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { PDFDocument } from 'pdf-lib'
 import { supabase } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
@@ -28,19 +27,14 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (existing) {
-    return NextResponse.json({ document: existing, duplicate: true })
-  }
-
-  // For PDFs: check page count to decide if review is needed
-  let needsReview = false
-  if (file.type === 'application/pdf') {
-    try {
-      const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true })
-      needsReview = pdfDoc.getPageCount() > 1
-    } catch {
-      // If we can't parse it, send to review to be safe
-      needsReview = true
+    if (existing.extraction_status === 'done') {
+      return NextResponse.json({ document: existing, duplicate: true })
     }
+    if (existing.extraction_status === 'processing') {
+      return NextResponse.json({ document: existing, inProgress: true })
+    }
+    // pending or error: allow re-extraction without re-uploading
+    return NextResponse.json({ document: existing, retryExtraction: true })
   }
 
   const ext = file.name.split('.').pop() ?? 'bin'
@@ -80,5 +74,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: dbError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ document: doc, duplicate: false, needsReview })
+  return NextResponse.json({ document: doc, duplicate: false })
 }

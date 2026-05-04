@@ -1,24 +1,41 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
-type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'duplicate' | 'needs-review' | 'error'
+type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'duplicate' | 'server-processing' | 'error'
 
 type FileEntry = {
   file: File
   status: FileStatus
   error?: string
   count?: number
-  reviewId?: string  // doc ID for PDFs that need review
 }
 
+type ServerDoc = { id: string; filename: string }
+
 export default function UploadPage() {
+  const router = useRouter()
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [running, setRunning] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [serverProcessing, setServerProcessing] = useState<ServerDoc[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
+
+  // On mount: show any docs still processing server-side from a previous session
+  useEffect(() => {
+    fetch('/api/documents')
+      .then((r) => r.json())
+      .then((d) => {
+        const processing = (d.documents ?? []).filter(
+          (doc: { extraction_status: string }) => doc.extraction_status === 'processing'
+        ) as ServerDoc[]
+        setServerProcessing(processing)
+      })
+      .catch(() => {})
+  }, [])
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -36,7 +53,6 @@ export default function UploadPage() {
 
   async function processAll() {
     setRunning(true)
-    const currentEntries = entries.filter((e) => e.status === 'pending')
 
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].status !== 'pending') continue
@@ -46,7 +62,13 @@ export default function UploadPage() {
       const formData = new FormData()
       formData.append('file', entries[i].file)
 
-      let uploadData: { document?: { id: string }; duplicate?: boolean; needsReview?: boolean; error?: string }
+      let uploadData: {
+        document?: { id: string }
+        duplicate?: boolean
+        inProgress?: boolean
+        retryExtraction?: boolean
+        error?: string
+      }
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData })
         uploadData = await res.json()
@@ -64,16 +86,18 @@ export default function UploadPage() {
         continue
       }
 
-      // Multi-page PDFs → review, single-page PDFs and images → direct extraction
-      if (uploadData.needsReview) {
-        updateEntry(i, { status: 'needs-review', reviewId: uploadData.document!.id })
+      // Server is already processing this doc (e.g. from a previous interrupted session)
+      if (uploadData.inProgress) {
+        updateEntry(i, { status: 'server-processing' })
         continue
       }
 
       updateEntry(i, { status: 'extracting' })
 
+      // retryExtraction = doc exists but was pending/error, re-use existing ID
+      const docId = uploadData.document!.id
       try {
-        const extractRes = await fetch(`/api/extract/${uploadData.document!.id}`, { method: 'POST' })
+        const extractRes = await fetch(`/api/extract/${docId}`, { method: 'POST' })
         const extractData = await extractRes.json()
         if (!extractRes.ok) {
           updateEntry(i, { status: 'error', error: extractData.error ?? 'Extraktion fehlgeschlagen' })
@@ -116,6 +140,27 @@ export default function UploadPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-4">
+
+        {/* In-progress docs from a previous session */}
+        {serverProcessing.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-blue-100">
+              <p className="text-sm font-medium text-blue-800">
+                {serverProcessing.length} Dokument{serverProcessing.length !== 1 ? 'e' : ''} wird noch analysiert
+              </p>
+            </div>
+            <div className="divide-y divide-blue-100">
+              {serverProcessing.map((doc) => (
+                <div key={doc.id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-base w-5 text-center shrink-0 text-blue-500">⟳</span>
+                  <p className="text-sm text-blue-700 flex-1 truncate">{doc.filename}</p>
+                  <p className="text-xs text-blue-400 shrink-0">läuft…</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Drop zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -133,7 +178,6 @@ export default function UploadPage() {
             className="hidden"
             onChange={(e) => addFiles(e.target.files)}
           />
-          {/* webkitdirectory via ref so TypeScript doesn't complain */}
           <input
             ref={folderRef}
             type="file"
@@ -184,22 +228,14 @@ export default function UploadPage() {
                     {entry.status === 'extracting' && (
                       <p className="text-xs text-zinc-400 mt-0.5">Claude analysiert…</p>
                     )}
-                    {entry.status === 'needs-review' && (
-                      <p className="text-xs text-blue-600 mt-0.5">PDF bereit zur Prüfung</p>
+                    {entry.status === 'server-processing' && (
+                      <p className="text-xs text-blue-500 mt-0.5">Wird bereits analysiert – prüfe den Dokumente-Tab</p>
                     )}
                   </div>
-                  <div className="shrink-0 flex items-center gap-2">
+                  <div className="shrink-0">
                     <span className="text-xs text-zinc-400">
                       {(entry.file.size / 1024).toFixed(0)} KB
                     </span>
-                    {entry.status === 'needs-review' && entry.reviewId && (
-                      <Link
-                        href={`/review/${entry.reviewId}`}
-                        className="text-xs px-2.5 py-1.5 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors"
-                      >
-                        Prüfen →
-                      </Link>
-                    )}
                   </div>
                 </div>
               ))}
@@ -231,12 +267,19 @@ export default function UploadPage() {
             </div>
           )}
           {allFinished && (
-            <Link
-              href="/"
-              className="flex-1 py-3 bg-zinc-900 text-white text-sm font-medium rounded-xl hover:bg-zinc-800 transition-colors text-center"
+            <button
+              onClick={() => {
+                const now = Date.now().toString()
+                sessionStorage.setItem('profileGeneratingAt', now)
+                sessionStorage.setItem('actionPlanGeneratingAt', now)
+                void fetch('/api/profile', { method: 'POST' })
+                void fetch('/api/action-plan', { method: 'POST' })
+                router.push('/')
+              }}
+              className="flex-1 py-3 bg-zinc-900 text-white text-sm font-medium rounded-xl hover:bg-zinc-800 transition-colors"
             >
               Zum Dashboard
-            </Link>
+            </button>
           )}
           {entries.length > 0 && !running && (
             <button
@@ -259,7 +302,7 @@ function StatusIcon({ status }: { status: FileStatus }) {
     extracting: '🔬',
     done: '✓',
     duplicate: '↩',
-    'needs-review': '📋',
+    'server-processing': '⟳',
     error: '✕',
   }
   const colors: Record<FileStatus, string> = {
@@ -268,7 +311,7 @@ function StatusIcon({ status }: { status: FileStatus }) {
     extracting: 'text-blue-500',
     done: 'text-green-500',
     duplicate: 'text-zinc-400',
-    'needs-review': 'text-blue-500',
+    'server-processing': 'text-blue-500',
     error: 'text-red-500',
   }
   return (

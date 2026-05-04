@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 type Observation = {
   id: string
   display_name: string
+  loinc_code: string | null
   value: number | null
   value_text: string | null
   unit: string | null
@@ -21,21 +20,30 @@ type Observation = {
   volatility: string
 }
 
-type Analysis = {
+type Profile = {
   id: string
-  created_at: string
   summary: string
-  sport_recommendations: Rec[]
-  nutrition_recommendations: Rec[]
-  supplement_recommendations: SupRec[]
-  test_recommendations: TestRec[]
+  body_age: number | null
+  updated_at: string
 }
 
-type Rec = { title: string; description: string; priority: string }
-type SupRec = { title: string; description: string; dosage: string | null; priority: string }
-type TestRec = { title: string; description: string; urgency: string }
+type Allergen = {
+  id: string
+  name: string
+  severity: string
+  common_foods: string[]
+}
 
-type ChatMessage = { role: 'user' | 'assistant'; content: string }
+type ActionPlanItem = {
+  id: string
+  category: string
+  title: string
+  value: string | null
+  label: string | null
+  note: string | null
+  prescription_required: boolean
+  updated_at: string
+}
 
 type Document = {
   id: string
@@ -86,31 +94,36 @@ const statusLabel = {
   critical: 'Kritisch',
 }
 
-const priorityColor = {
-  hoch: 'bg-red-100 text-red-700',
-  mittel: 'bg-yellow-100 text-yellow-700',
-  niedrig: 'bg-green-100 text-green-700',
-}
 
-const urgencyColor = {
-  sofort: 'bg-red-100 text-red-700',
-  bald: 'bg-yellow-100 text-yellow-700',
-  routine: 'bg-blue-100 text-blue-700',
+const BIRTH_DATE = new Date('1975-07-11')
+
+function getActualAge(): number {
+  const today = new Date()
+  let age = today.getFullYear() - BIRTH_DATE.getFullYear()
+  const m = today.getMonth() - BIRTH_DATE.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < BIRTH_DATE.getDate())) age--
+  return age
 }
 
 export default function Dashboard() {
   const router = useRouter()
   const [observations, setObservations] = useState<Observation[]>([])
-  const [analysis, setAnalysis] = useState<Analysis | null>(null)
-  const [loadingAnalysis, setLoadingAnalysis] = useState(false)
   const [documents, setDocuments] = useState<Document[]>([])
   const [docSearch, setDocSearch] = useState('')
   const [docCategoryFilter, setDocCategoryFilter] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<'werte' | 'analyse' | 'chat' | 'dokumente'>('werte')
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState<'werte' | 'schlachtplan' | 'dokumente'>('werte')
+  const [schlachtplanSubTab, setSchlachtplanSubTab] = useState<'exercises' | 'habits' | 'nutrition' | 'supplements'>('exercises')
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(true)
+  const [profileGenerating, setProfileGenerating] = useState(false)
+  const [allergens, setAllergens] = useState<Allergen[]>([])
+  const [allergenExpanded, setAllergenExpanded] = useState(false)
+  const [actionPlanItems, setActionPlanItems] = useState<ActionPlanItem[]>([])
+  const [actionPlanSummary, setActionPlanSummary] = useState<string | null>(null)
+  const [actionPlanGenerating, setActionPlanGenerating] = useState(false)
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({})
+  const [descriptionsLoaded, setDescriptionsLoaded] = useState(false)
+  const [expandedNames, setExpandedNames] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetch('/api/observations')
@@ -119,16 +132,116 @@ export default function Dashboard() {
     fetch('/api/documents')
       .then((r) => r.json())
       .then((d) => setDocuments(d.documents ?? []))
+    fetch('/api/profile')
+      .then((r) => r.json())
+      .then((d) => setProfile(d.profile ?? null))
+      .finally(() => setProfileLoading(false))
+    fetch('/api/action-plan')
+      .then((r) => r.json())
+      .then((d) => {
+        setActionPlanItems(d.items ?? [])
+        setActionPlanSummary(d.summary ?? null)
+      })
+    fetch('/api/allergens')
+      .then((r) => r.json())
+      .then((d) => setAllergens(d.allergens ?? []))
+    fetch('/api/observation-descriptions')
+      .then((r) => r.json())
+      .then((d) => {
+        setDescriptions(d.descriptions ?? {})
+        setDescriptionsLoaded(true)
+      })
+    if (sessionStorage.getItem('profileGeneratingAt')) setProfileGenerating(true)
+    if (sessionStorage.getItem('actionPlanGeneratingAt')) setActionPlanGenerating(true)
   }, [])
 
+  // Poll every 2s while profile is generating; stop when profile is newer than the trigger timestamp
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
+    if (!profileGenerating) return
+    const triggerAt = parseInt(sessionStorage.getItem('profileGeneratingAt') ?? '0', 10)
+    const interval = setInterval(() => {
+      fetch('/api/profile')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.profile && new Date(d.profile.updated_at).getTime() > triggerAt) {
+            sessionStorage.removeItem('profileGeneratingAt')
+            setProfile(d.profile)
+            setProfileGenerating(false)
+          }
+        })
+        .catch(() => {})
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [profileGenerating])
 
-  const abnormal = observations.filter((o) => o.status !== 'normal')
+  // Backfill any missing descriptions once both observations and descriptions are loaded
+  useEffect(() => {
+    if (!descriptionsLoaded || observations.length === 0) return
+    const uniqueNames = [...new Set(observations.map((o) => o.display_name))]
+    const hasMissing = uniqueNames.some((name) => !descriptions[name])
+    if (!hasMissing) return
+    fetch('/api/observation-descriptions', { method: 'POST' })
+      .then((r) => r.json())
+      .then((d) => { if (d.descriptions) setDescriptions(d.descriptions) })
+      .catch(() => {})
+  }, [descriptionsLoaded, observations.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleDescription(name: string) {
+    setExpandedNames((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  // Poll every 2s while action plan is generating
+  // Stops when summary arrives (generated last); 90s fallback if summary fails
+  useEffect(() => {
+    if (!actionPlanGenerating) return
+    const triggerAt = parseInt(sessionStorage.getItem('actionPlanGeneratingAt') ?? '0', 10)
+    const interval = setInterval(() => {
+      fetch('/api/action-plan')
+        .then((r) => r.json())
+        .then((d) => {
+          const fresh = d.updated_at && new Date(d.updated_at).getTime() > triggerAt
+          if (fresh) {
+            setActionPlanItems(d.items ?? [])
+            if (d.summary) {
+              sessionStorage.removeItem('actionPlanGeneratingAt')
+              setActionPlanSummary(d.summary)
+              setActionPlanGenerating(false)
+            }
+            // else: items ready but summary still generating → keep polling
+          }
+        })
+        .catch(() => {})
+    }, 2000)
+    const timeout = setTimeout(() => {
+      sessionStorage.removeItem('actionPlanGeneratingAt')
+      setActionPlanGenerating(false)
+    }, 90000)
+    return () => { clearInterval(interval); clearTimeout(timeout) }
+  }, [actionPlanGenerating])
+
+  // Deduplicate: prefer LOINC-code match first, fall back to exact display_name.
+  // API returns newest first, so the first occurrence wins.
+  const deduped = (() => {
+    const seenLoinc = new Set<string>()
+    const seenName = new Set<string>()
+    return observations.filter((o) => {
+      if (o.loinc_code && seenLoinc.has(o.loinc_code)) return false
+      if (seenName.has(o.display_name)) return false
+      if (o.loinc_code) seenLoinc.add(o.loinc_code)
+      seenName.add(o.display_name)
+      return true
+    })
+  })()
+
+  const abnormal = deduped.filter((o) => o.status !== 'normal')
     .sort((a, b) => b.clinical_severity - a.clinical_severity)
 
-  const allSorted = [...observations].sort((a, b) => b.clinical_severity - a.clinical_severity)
+  const allSorted = [...deduped].sort((a, b) => b.clinical_severity - a.clinical_severity)
 
   async function logout() {
     await fetch('/api/auth', { method: 'DELETE' })
@@ -136,56 +249,6 @@ export default function Dashboard() {
     router.refresh()
   }
 
-  async function generateAnalysis() {
-    setLoadingAnalysis(true)
-    try {
-      const res = await fetch('/api/analyze', { method: 'POST' })
-      const data = await res.json()
-      if (data.analysis) setAnalysis(data.analysis)
-    } finally {
-      setLoadingAnalysis(false)
-    }
-  }
-
-  async function sendChat(e: React.FormEvent) {
-    e.preventDefault()
-    if (!chatInput.trim() || chatLoading) return
-
-    const userMsg: ChatMessage = { role: 'user', content: chatInput }
-    const newMessages = [...chatMessages, userMsg]
-    setChatMessages(newMessages)
-    setChatInput('')
-    setChatLoading(true)
-
-    const assistantMsg: ChatMessage = { role: 'assistant', content: '' }
-    setChatMessages([...newMessages, assistantMsg])
-
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: newMessages }),
-    })
-
-    const reader = res.body?.getReader()
-    const decoder = new TextDecoder()
-
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value)
-        setChatMessages((prev) => {
-          const updated = [...prev]
-          updated[updated.length - 1] = {
-            role: 'assistant',
-            content: updated[updated.length - 1].content + chunk,
-          }
-          return updated
-        })
-      }
-    }
-    setChatLoading(false)
-  }
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -212,6 +275,8 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
+        <p className="text-xl font-semibold text-zinc-900 mb-5">Hi Nikolaus!</p>
+
         {observations.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-zinc-500 text-sm mb-4">Noch keine Messwerte vorhanden.</p>
@@ -224,13 +289,71 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
+            {/* Profile widgets */}
+            {(profile || profileLoading || profileGenerating) && (
+              <div className="mb-6 space-y-3">
+                {/* Row 1: Summary + Body Age */}
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch">
+                  {/* Summary */}
+                  <div className="order-2 sm:order-1 flex-1 bg-white rounded-xl border border-zinc-200 p-5">
+                    {profileGenerating || (profileLoading && !profile) ? (
+                      <div className="space-y-2.5 py-1">
+                        {profileGenerating
+                          ? <><div className="shimmer h-3 rounded w-3/4" /><div className="shimmer h-3 rounded" /><div className="shimmer h-3 rounded w-5/6" /><div className="shimmer h-3 rounded w-2/3" /></>
+                          : <><div className="h-3 bg-zinc-100 rounded animate-pulse w-3/4" /><div className="h-3 bg-zinc-100 rounded animate-pulse" /><div className="h-3 bg-zinc-100 rounded animate-pulse w-5/6" /><div className="h-3 bg-zinc-100 rounded animate-pulse w-2/3" /></>
+                        }
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Gesundheitsstatus</p>
+                        <p className="text-sm text-zinc-700 leading-relaxed">{profile?.summary}</p>
+                        {profile?.updated_at && (
+                          <p className="text-xs text-zinc-400 mt-3">
+                            Aktualisiert {new Date(profile.updated_at).toLocaleDateString('de-DE')}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Body Age */}
+                  <div className="order-1 sm:order-2 sm:w-36 sm:shrink-0 bg-white rounded-xl border border-zinc-200 px-4 py-6 flex items-center justify-center gap-6 sm:flex-col sm:gap-3">
+                    {profileGenerating || (profileLoading && !profile) ? (
+                      <div className="flex flex-col items-center gap-2 w-full">
+                        {profileGenerating
+                          ? <><div className="shimmer h-10 rounded w-16" /><div className="shimmer h-3 rounded w-20" /></>
+                          : <><div className="h-10 bg-zinc-100 rounded animate-pulse w-16" /><div className="h-3 bg-zinc-100 rounded animate-pulse w-full" /></>
+                        }
+                      </div>
+                    ) : profile?.body_age != null ? (() => {
+                      const diff = profile.body_age! - getActualAge()
+                      const numColor = diff <= -2 ? 'text-green-600' : diff >= 6 ? 'text-red-600' : diff >= 3 ? 'text-orange-600' : 'text-zinc-900'
+                      return (
+                        <>
+                          <div className="flex flex-col items-center text-center">
+                            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Körperalter</p>
+                            <p className={`text-[42px] font-bold tabular-nums leading-none ${numColor}`}>{profile.body_age}</p>
+                            <p className="text-xs text-zinc-500 mt-1">Jahre</p>
+                          </div>
+                          <BodyAgeSmiley diff={diff} className="w-[65px] h-[65px] sm:w-11 sm:h-11" />
+                        </>
+                      )
+                    })() : (
+                      <p className="text-2xl font-bold text-zinc-300">–</p>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
             {abnormal.length > 0 && (
               <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-xl">
                 <p className="text-sm font-medium text-orange-800 mb-2">
                   {abnormal.length} Wert{abnormal.length > 1 ? 'e' : ''} außerhalb des Referenzbereichs
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {abnormal.slice(0, 5).map((o) => (
+                  {abnormal.map((o) => (
                     <span key={o.id} className={`text-xs px-2 py-1 rounded-full border ${statusColor[o.status as keyof typeof statusColor] ?? 'bg-zinc-100 text-zinc-600'}`}>
                       {o.display_name}
                     </span>
@@ -240,7 +363,7 @@ export default function Dashboard() {
             )}
 
             <div className="flex border-b border-zinc-200 mb-6 gap-1 overflow-x-auto">
-              {(['werte', 'analyse', 'chat', 'dokumente'] as const).map((tab) => (
+              {(['werte', 'schlachtplan', 'dokumente'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -250,7 +373,7 @@ export default function Dashboard() {
                       : 'border-transparent text-zinc-500 hover:text-zinc-700'
                   }`}
                 >
-                  {tab === 'werte' ? 'Messwerte' : tab === 'analyse' ? 'Analyse' : tab === 'chat' ? 'Chat' : 'Dokumente'}
+                  {tab === 'werte' ? 'Messwerte' : tab === 'schlachtplan' ? 'Schlachtplan' : 'Dokumente'}
                 </button>
               ))}
             </div>
@@ -267,6 +390,8 @@ export default function Dashboard() {
                     : o.reference_range_low != null
                     ? `${o.reference_range_low}–${o.reference_range_high} ${o.unit ?? ''}`
                     : null
+                  const desc = descriptions[o.display_name]
+                  const isExpanded = expandedNames.has(o.display_name)
                   return (
                     <div key={o.id} className="bg-white rounded-xl border border-zinc-200 p-4">
                       <div className="flex items-start justify-between mb-2">
@@ -284,136 +409,170 @@ export default function Dashboard() {
                         <p className="text-sm text-zinc-600 leading-snug">{val}</p>
                       )}
                       <p className="text-xs text-zinc-400 mt-1">{o.measured_at}</p>
+                      {desc && (
+                        <>
+                          <button
+                            onClick={() => toggleDescription(o.display_name)}
+                            className="text-xs text-zinc-800 hover:text-zinc-500 mt-2 flex items-center gap-1 transition-colors"
+                          >
+                            Beschreibung
+                            <svg
+                              className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              viewBox="0 0 12 12"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M2 4.5L6 8.5L10 4.5" />
+                            </svg>
+                          </button>
+                          {isExpanded && (
+                            <p className="text-xs text-zinc-500 mt-2 pt-2 border-t border-zinc-100 leading-relaxed">
+                              {desc}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   )
                 })}
               </div>
             )}
 
-            {activeTab === 'analyse' && (
-              <div>
-                {!analysis ? (
-                  <div className="text-center py-12">
-                    <p className="text-sm text-zinc-500 mb-4">Noch keine Analyse erstellt.</p>
-                    <button
-                      onClick={generateAnalysis}
-                      disabled={loadingAnalysis}
-                      className="px-4 py-2 bg-zinc-900 text-white text-sm rounded-lg hover:bg-zinc-800 disabled:opacity-50 transition-colors"
-                    >
-                      {loadingAnalysis ? 'Analysiere…' : 'Analyse erstellen'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-xl border border-zinc-200 p-5">
-                      <h2 className="text-sm font-semibold text-zinc-700 mb-2">Zusammenfassung</h2>
-                      <p className="text-sm text-zinc-700 leading-relaxed">{analysis.summary}</p>
-                      <p className="text-xs text-zinc-400 mt-3">
-                        Erstellt am {new Date(analysis.created_at).toLocaleDateString('de-DE')}
-                      </p>
-                    </div>
+            {activeTab === 'schlachtplan' && (
+              <div className="min-h-[480px]">
 
-                    <RecommendationSection
-                      title="Sport & Bewegung"
-                      items={analysis.sport_recommendations}
-                      badgeColor={(p) => priorityColor[p as keyof typeof priorityColor] ?? 'bg-zinc-100 text-zinc-600'}
-                      badgeKey="priority"
-                    />
-                    <RecommendationSection
-                      title="Ernährung"
-                      items={analysis.nutrition_recommendations}
-                      badgeColor={(p) => priorityColor[p as keyof typeof priorityColor] ?? 'bg-zinc-100 text-zinc-600'}
-                      badgeKey="priority"
-                    />
-                    <RecommendationSection
-                      title="Nahrungsergänzung"
-                      items={(analysis.supplement_recommendations ?? []).map((s) => ({
-                        ...s,
-                        description: s.dosage ? `${s.description} (${s.dosage})` : s.description,
-                      }))}
-                      badgeColor={(p) => priorityColor[p as keyof typeof priorityColor] ?? 'bg-zinc-100 text-zinc-600'}
-                      badgeKey="priority"
-                    />
-                    <RecommendationSection
-                      title="Empfohlene Untersuchungen"
-                      items={analysis.test_recommendations}
-                      badgeColor={(u) => urgencyColor[u as keyof typeof urgencyColor] ?? 'bg-zinc-100 text-zinc-600'}
-                      badgeKey="urgency"
-                    />
-
-                    <button
-                      onClick={generateAnalysis}
-                      disabled={loadingAnalysis}
-                      className="text-sm text-zinc-500 hover:text-zinc-700 underline"
-                    >
-                      Neue Analyse erstellen
-                    </button>
+                {/* Summary widget */}
+                {(actionPlanGenerating || actionPlanSummary) && (
+                  <div className="bg-white rounded-xl border border-zinc-200 p-5 mb-5">
+                    {actionPlanGenerating ? (
+                      <div className="space-y-2.5 py-1">
+                        <div className="shimmer h-3 rounded w-3/4" />
+                        <div className="shimmer h-3 rounded" />
+                        <div className="shimmer h-3 rounded w-5/6" />
+                        <div className="shimmer h-3 rounded w-2/3" />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Dein Schlachtplan</p>
+                        <p className="text-sm text-zinc-700 leading-relaxed">{actionPlanSummary}</p>
+                      </>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {activeTab === 'chat' && (
-              <div className="flex flex-col h-[60dvh]">
-                <div className="flex-1 overflow-y-auto space-y-3 pb-4">
-                  {chatMessages.length === 0 && (
-                    <p className="text-sm text-zinc-400 text-center pt-8">
-                      Stell mir Fragen zu deinen Gesundheitsdaten.
-                    </p>
-                  )}
-                  {chatMessages.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                        msg.role === 'user'
+                {/* Sub-tabs */}
+                <div className="flex gap-1 mb-5 overflow-x-auto">
+                  {([
+                    { key: 'exercises', label: 'Übungen' },
+                    { key: 'habits', label: 'Habits' },
+                    { key: 'nutrition', label: 'Ernährung' },
+                    { key: 'supplements', label: 'Supplements' },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setSchlachtplanSubTab(key)}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+                        schlachtplanSubTab === key
                           ? 'bg-zinc-900 text-white'
-                          : 'bg-white border border-zinc-200 text-zinc-800'
-                      }`}>
-                        {msg.role === 'user' ? (
-                          msg.content
-                        ) : msg.content ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                              strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
-                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
-                              li: ({ children }) => <li>{children}</li>,
-                              h1: ({ children }) => <p className="font-semibold mb-1">{children}</p>,
-                              h2: ({ children }) => <p className="font-semibold mb-1">{children}</p>,
-                              h3: ({ children }) => <p className="font-medium mb-1">{children}</p>,
-                              code: ({ children }) => <code className="bg-zinc-100 px-1 rounded text-xs">{children}</code>,
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
-                        ) : chatLoading ? '…' : ''}
-                      </div>
-                    </div>
+                          : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
                   ))}
-                  <div ref={chatEndRef} />
                 </div>
-                <form onSubmit={sendChat} className="flex gap-2 pt-3 border-t border-zinc-200">
-                  <input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Frage stellen…"
-                    className="flex-1 px-3.5 py-3 text-base sm:text-sm rounded-lg border border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent"
-                    disabled={chatLoading}
-                  />
-                  <button
-                    type="submit"
-                    disabled={chatLoading || !chatInput.trim()}
-                    className="px-4 py-3 bg-zinc-900 text-white text-sm rounded-lg hover:bg-zinc-800 disabled:opacity-50 transition-colors min-w-[72px]"
-                  >
-                    Senden
-                  </button>
-                </form>
+
+                {/* Items grid */}
+                {actionPlanGenerating ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {[...Array(6)].map((_, i) => (
+                      <div key={i} className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
+                        <div className="shimmer h-3 rounded w-2/3" />
+                        <div className="shimmer h-6 rounded w-1/2" />
+                        <div className="shimmer h-3 rounded w-full" />
+                        <div className="shimmer h-3 rounded w-4/5" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (() => {
+                  const items = actionPlanItems.filter((i) => i.category === schlachtplanSubTab)
+                  if (items.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center min-h-[300px]">
+                        <p className="text-sm text-zinc-400">Noch keine Daten. Lade Dokumente hoch und drücke "Zum Dashboard".</p>
+                      </div>
+                    )
+                  }
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {schlachtplanSubTab === 'nutrition' && allergens.length > 0 && (
+                        <div className="col-span-full bg-orange-50 border border-orange-200 rounded-xl overflow-hidden">
+                          <div className="px-4 py-3 border-b border-orange-100">
+                            <p className="text-sm font-semibold text-orange-800">⚠ Allergene &amp; Unverträglichkeiten</p>
+                            <p className="text-xs text-orange-500 mt-0.5">Nur erhöhte IgG-Reaktionen (Klasse ≥ 2)</p>
+                          </div>
+                          <div className={`divide-y divide-orange-100 overflow-hidden transition-all duration-300 ${allergenExpanded ? '' : 'max-h-48'}`}>
+                            {allergens.map((a) => {
+                              const badgeColor = a.severity === 'komplett vermeiden'
+                                ? 'bg-red-100 text-red-700 border-red-200'
+                                : a.severity === 'stark reduzieren'
+                                ? 'bg-orange-100 text-orange-700 border-orange-200'
+                                : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                              return (
+                                <div key={a.id} className="px-4 py-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-medium text-orange-900">{a.name}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${badgeColor}`}>{a.severity}</span>
+                                  </div>
+                                  {a.common_foods.length > 0 && (
+                                    <p className="text-xs text-orange-500 mt-0.5">{a.common_foods.join(' · ')}</p>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                          {allergens.length > 3 && (
+                            <button
+                              onClick={() => setAllergenExpanded((e) => !e)}
+                              className="w-full px-4 py-2 text-xs text-orange-600 hover:text-orange-800 border-t border-orange-100 transition-colors"
+                            >
+                              {allergenExpanded ? '↑ Weniger anzeigen' : `↓ Alle ${allergens.length} Allergene anzeigen`}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {items.map((item) => (
+                        <div key={item.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                          <div className="flex items-start justify-between mb-2 gap-2">
+                            <p className="text-sm font-medium text-zinc-800 leading-tight flex-1 min-w-0">{item.title}</p>
+                            <div className="flex flex-col items-end gap-1 max-w-[45%]">
+                              {item.prescription_required && (
+                                <span className="text-xs px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200 font-medium whitespace-nowrap">Rx</span>
+                              )}
+                              {item.label && (
+                                <span className="text-xs px-2 py-0.5 rounded border bg-zinc-50 text-zinc-500 border-zinc-200 text-right break-words">{item.label}</span>
+                              )}
+                            </div>
+                          </div>
+                          {item.value && (
+                            <p className="text-xl font-semibold text-zinc-900 mb-1">{item.value}</p>
+                          )}
+                          {item.note && (
+                            <p className="text-xs text-zinc-500 leading-relaxed">{item.note}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
             {activeTab === 'dokumente' && (
-              <div className="space-y-4">
+              <div className="space-y-4 min-h-[480px]">
                 {/* Search */}
                 <input
                   type="search"
@@ -548,36 +707,26 @@ export default function Dashboard() {
   )
 }
 
-function RecommendationSection({
-  title,
-  items,
-  badgeColor,
-  badgeKey,
-}: {
-  title: string
-  items: Record<string, string | null>[]
-  badgeColor: (v: string) => string
-  badgeKey: string
-}) {
-  if (!items?.length) return null
+function BodyAgeSmiley({ diff, className = 'w-11 h-11' }: { diff: number; className?: string }) {
+  if (diff <= -5)
+    return <img src="/SVGs/man-cartwheeling-medium-skin-tone.svg" className={className} aria-hidden="true" />
+  if (diff >= 7)
+    return <img src="/SVGs/old-man-medium-skin-tone.svg" className={className} aria-hidden="true" />
+  if (diff >= 0 && diff <= 2)
+    return <img src="/SVGs/MEH.svg" className={className} aria-hidden="true" />
+
+  // diff -4 to -1: slight smile · diff 3 to 6: frown
+  const isSmile = diff < 0
+  const color = isSmile ? '#16a34a' : '#f97316'
+  const mouth = isSmile ? 'M 13,29 Q 24,36 35,29' : 'M 13,30 Q 24,22 35,30'
+
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 p-5">
-      <h2 className="text-sm font-semibold text-zinc-700 mb-3">{title}</h2>
-      <div className="space-y-3">
-        {items.map((item, i) => (
-          <div key={i} className="flex gap-3">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-0.5">
-                <p className="text-sm font-medium text-zinc-800">{item.title}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${badgeColor(item[badgeKey] ?? '')}`}>
-                  {item[badgeKey]}
-                </span>
-              </div>
-              <p className="text-sm text-zinc-500 leading-relaxed">{item.description}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <circle cx="24" cy="24" r="22" fill={color} />
+      <circle cx="17" cy="19" r="2.5" fill="white" />
+      <circle cx="31" cy="19" r="2.5" fill="white" />
+      <path d={mouth} fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
   )
 }
+
