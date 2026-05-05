@@ -673,9 +673,7 @@ export default function Dashboard() {
                     <button
                       key={cat}
                       onClick={() =>
-                        setDocCategoryFilter((prev) =>
-                          prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-                        )
+                        setDocCategoryFilter((prev) => (prev.includes(cat) ? [] : [cat]))
                       }
                       className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                         docCategoryFilter.includes(cat)
