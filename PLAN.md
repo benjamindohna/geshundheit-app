@@ -2,6 +2,38 @@
 
 ---
 
+## Verbesserung: Leerer State unterscheidet „keine Dokumente" vs. „keine Messwerte extrahiert"
+
+### Problem
+Aktuell wird bei `observations.length === 0` immer dieselbe Meldung angezeigt: „Noch keine Messwerte vorhanden. Erstes Dokument hochladen." — egal ob wirklich noch nie ein Dokument hochgeladen wurde, oder ob Dokumente vorhanden sind, aber keine Messwerte extrahiert werden konnten (z.B. Rechnung, falsches Dokument).
+
+### Gewünschtes Verhalten
+- **Keine Dokumente vorhanden** (`documents.length === 0`): wie bisher — „Noch keine Messwerte vorhanden. Erstes Dokument hochladen."
+- **Dokumente vorhanden, aber keine Messwerte** (`documents.length > 0`, `observations.length === 0`): andere Meldung — „Aus den hochgeladenen Dokumenten konnten noch keine relevanten Messwerte gezogen werden. Bitte lade weitere Dokumente hoch, um eine Anzeige und Analyse zu ermöglichen." — zusätzlich sollte der Dokumente-Tab sichtbar/zugänglich sein, damit der User sehen kann welche Dokumente schon da sind.
+
+### Umsetzung
+In `page.tsx`: Bedingung aufteilen — prüfen ob `documents.length > 0` um zwischen den beiden States zu unterscheiden. Dokumente werden bereits parallel zu Observations geladen, sind also verfügbar. Im zweiten State den Dokumente-Tab trotzdem rendern (Tabs einblenden, auch wenn Observations leer sind).
+
+---
+
+## Verbesserung: Gesundheitsstatus erklärt Konsequenzen unbekannter Werte
+
+### Was es ist
+Der Gesundheitsstatus-Text (KI-generierte Zusammenfassung oben im Dashboard) soll davon ausgehen, dass der User medizinische Fachbegriffe wie „VO₂ Peak", „LDL-Cholesterin", „GFR" etc. **nicht kennt** — weder was sie messen noch was ein hoher oder niedriger Wert bedeutet.
+
+Der Text muss daher nicht jeden Wert erklären, aber wenn ein auffälliger Wert genannt wird, soll kurz die **Konsequenz oder Bedeutung im Alltag** angedeutet werden — so dass der User einen Zusammenhang herstellen kann.
+
+**Beispiele:**
+- Nicht: „Dein LDL-Cholesterin ist erhöht."
+- Besser: „Dein LDL-Cholesterin ist erhöht — das ist ein Blutfettwert, der bei dauerhafter Erhöhung das Risiko für Herz-Kreislauf-Erkrankungen steigert."
+- Nicht: „Dein VO₂ Peak liegt bei 38 ml/kg/min."
+- Besser: „Dein VO₂ Peak — ein Maß für deine kardiovaskuläre Ausdauerfähigkeit — liegt im unteren Normbereich für dein Alter."
+
+### Umsetzung
+Anpassung des Prompts in `src/lib/profile.ts` (Funktion die den Gesundheitsstatus generiert): Explizite Anweisung ergänzen, dass der User Laie ist und bei jedem genannten Fachbegriff eine kurze Kontextualisierung (Bedeutung + Konsequenz, 1 Halbsatz) mitgeliefert werden soll — ohne den Text unnötig aufzublähen.
+
+---
+
 ## Feature 1: „Änderungen seit den letzten Messungen"
 
 ### Was es ist

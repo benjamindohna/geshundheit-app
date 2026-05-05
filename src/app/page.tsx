@@ -109,6 +109,7 @@ function getActualAge(): number {
 export default function Dashboard() {
   const router = useRouter()
   const [observations, setObservations] = useState<Observation[]>([])
+  const [observationsLoading, setObservationsLoading] = useState(true)
   const [documents, setDocuments] = useState<Document[]>([])
   const [docSearch, setDocSearch] = useState('')
   const [docCategoryFilter, setDocCategoryFilter] = useState<string[]>([])
@@ -132,6 +133,7 @@ export default function Dashboard() {
     fetch('/api/observations')
       .then((r) => r.json())
       .then((d) => setObservations(d.observations ?? []))
+      .finally(() => setObservationsLoading(false))
     fetch('/api/documents')
       .then((r) => r.json())
       .then((d) => setDocuments(d.documents ?? []))
@@ -300,7 +302,15 @@ export default function Dashboard() {
       <main className="max-w-5xl mx-auto px-4 py-6">
         <p className="text-xl font-semibold text-zinc-900 mb-5">Hi Nikolaus!</p>
 
-        {observations.length === 0 ? (
+        {observationsLoading ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <svg className="w-6 h-6 text-zinc-400 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-sm text-zinc-400">Daten werden geladen…</p>
+          </div>
+        ) : observations.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-zinc-500 text-sm mb-4">Noch keine Messwerte vorhanden.</p>
             <Link
