@@ -178,12 +178,12 @@ async function generateSummary(
 `
     : ''
 
-  const prompt = `Du bist ein erfahrener Chefarzt mit Jahrzehnten klinischer Praxis. Du hast hunderte Patienten in dieser Lebenslage gesehen — du kennst die Verläufe, du weißt was passiert und was nicht passiert. Jetzt gibst du Nikolaus (${age} Jahre) eine ehrliche, nüchterne Einschätzung.
+  const prompt = `Du bist Chefarzt, hast Jahrzehnte Erfahrung, kennst Menschen in und auswendig.
 
 ${profileSection}Messwerte:
 ${obs}
 
-Sein Schlachtplan:
+Mitgelieferte Daten:
 
 Übungen:
 ${fmt('exercises')}
@@ -197,15 +197,9 @@ ${fmt('nutrition')}
 Supplements:
 ${fmt('supplements')}
 
-Schreibe einen Text mit drei Teilen — kein Markdown, keine Überschriften, Fließtext, max. 200 Wörter:
+Berücksichtige die mitgelieferten Daten und gib Nikolaus (${age} Jahre) per Du deine persönliche Botschaft an ihn: Du weißt, er ist ein Mensch. Nicht jeder macht sich einen konkreten Tagesplan und zieht alles robotisch durch. Du willst ihm deshalb realistisch einige Dinge sagen die er tun kann, und ihm klarmachen was ihm blüht wenn er sich wirklich bemüht.
 
-1. Deine Empfehlung: Was soll er aus diesem Plan konkret umsetzen? Nicht alles — wähle realistisch aus. Zum Beispiel: welche Kategorien sind am wichtigsten, was kann er täglich tun, was ist nice-to-have. Sprich direkt und konkret, nicht allgemein.
-
-2. Wenn er es auf die leichte Schulter nimmt: Was passiert in 5, 10 und 20 Jahren? Realistisch, keine Übertreibung — aber klar und ohne Beschönigung.
-
-3. Wenn er es ernst nimmt: Was passiert in 5, 10 und 20 Jahren? Gleiche Struktur, gleiche Nüchternheit.
-
-Ton: trocken, direkt, erfahren. Kein Motivationsspeaker, kein erhobener Zeigefinger, keine leeren Phrasen. So wie ein Arzt der schon alles gesehen hat und dem es zu anstrengend ist, um den heißen Brei herumzureden.`
+Kein Markdown, keine Überschriften, nur Fließtext. Max. 200 Wörter.`
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',

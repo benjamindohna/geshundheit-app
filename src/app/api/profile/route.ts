@@ -12,7 +12,9 @@ export async function GET() {
     .limit(1)
     .maybeSingle()
 
-  return NextResponse.json({ profile: data ?? null })
+  return NextResponse.json({ profile: data ?? null }, {
+    headers: { 'Cache-Control': 'no-store' },
+  })
 }
 
 export async function POST() {

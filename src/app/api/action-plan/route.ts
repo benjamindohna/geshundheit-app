@@ -18,7 +18,9 @@ export async function GET() {
   const summaryAt = summaryRow?.updated_at ?? null
   const updatedAt = summaryAt ?? itemsAt
 
-  return NextResponse.json({ items, summary: summaryRow?.summary ?? null, updated_at: updatedAt })
+  return NextResponse.json({ items, summary: summaryRow?.summary ?? null, updated_at: updatedAt }, {
+    headers: { 'Cache-Control': 'no-store' },
+  })
 }
 
 export async function POST() {

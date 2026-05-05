@@ -48,45 +48,30 @@ export async function fetchObsText(): Promise<string> {
 }
 
 async function generateSummary(obs: string, existing: string | null): Promise<string> {
-  const laymanNote = `Nikolaus ist medizinischer Laie. Schreibe so, dass er ein intuitives Gefühl bekommt, was die Befunde für seine Gesundheit bedeuten — welche Risiken bestehen, wie sich das langfristig auswirken kann. Nenne nicht nur Werte und Statusbewertungen, sondern vermittle das Gefühl hinter den Zahlen: Was ist das konkrete Problem? Was steht auf dem Spiel? Du musst keine Begriffe erklären — aber der Text soll so klingen, dass jemand ohne medizinisches Vorwissen versteht, warum etwas relevant ist.`
-
-  const prompt = existing
-    ? `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
+  const basePrompt = `Du bist Chefarzt mit Jahrzehnten klinischer Erfahrung. Du hast hunderte Patienten in dieser Lebenslage gesehen und kennst die Verläufe genau. Jetzt gibst du Nikolaus (ca. ${getActualAge()} Jahre, männlich) eine ehrliche Einschätzung seines Gesundheitszustands.
 
 Aktuelle Messwerte:
 ${obs}
+
+Schreibe eine Zustandsbeschreibung (max. 200 Wörter).
+
+Was du vermitteln willst: das Gesamtbild — nicht einzelne Zahlen. Nenne möglichst wenige konkrete Werte. Stattdessen: Was ist der Zustand, den diese Werte gemeinsam ergeben? Was ist das Muster? Welches Bild entsteht, wenn man alles zusammennimmt?
+
+Nikolaus ist Laie. Beschreibe seinen Zustand so, dass er sich etwas darunter vorstellen kann — mit Bildern, greifbaren Konsequenzen. Nicht "dein LDL ist 177", sondern was bedeutet das Gesamtbild für seinen Körper, sein Energielevel, seine Zukunft? Was spürt jemand in diesem Zustand? Wohin entwickelt sich das, wenn nichts passiert?
+
+Zeige auch was gut läuft — das Gesamtbild ist selten nur schwarz.
+
+Ton: erfahren, direkt, ohne Beschönigung — aber auch ohne Zahlenbombardement. Ein Arzt der das Wesentliche auf den Punkt bringt.
+Keine Empfehlungen, keine Vorschläge. Du-Form. Kein Markdown, nur Fließtext.`
+
+  const prompt = existing
+    ? `${basePrompt}
 
 Bestehende Zusammenfassung:
 ${existing}
 
-Überprüfe die bestehende Zusammenfassung anhand der aktuellen Werte und gib eine aktualisierte Version zurück.
-Wenn die Daten nichts Neues zeigen, darf der Text identisch bleiben.
-Wenn sich etwas leicht verändert hat, passe den Text entsprechend an.
-Wenn sich etwas Wesentliches geändert hat, schreibe ihn neu.
-
-Die Zusammenfassung soll (max. 200 Wörter) den aktuellen Zustand beschreiben:
-- Gibt es Anlass zur Sorge?
-- Was sind die größten Probleme?
-- Wie ist der Zustand im Vergleich zu Männern gleichen Alters?
-
-Wichtig: Sprich Nikolaus direkt an (Du-Form). Nur Zustandsbeschreibung — keine Empfehlungen, keine Vorschläge was man tun könnte.
-${laymanNote}
-Keine Markdown-Formatierung, keine Sternchen, kein Fettdruck — nur normaler Fließtext.
-Nur der Text, keine Einleitung.`
-    : `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
-
-Aktuelle Messwerte:
-${obs}
-
-Schreibe eine Zustandsbeschreibung (max. 200 Wörter):
-- Gibt es Anlass zur Sorge?
-- Was sind die größten Probleme?
-- Wie ist der Zustand im Vergleich zu Männern gleichen Alters?
-
-Wichtig: Sprich Nikolaus direkt an (Du-Form). Nur Zustandsbeschreibung — keine Empfehlungen, keine Vorschläge was man tun könnte.
-${laymanNote}
-Keine Markdown-Formatierung, keine Sternchen, kein Fettdruck — nur normaler Fließtext.
-Nur der Text, keine Einleitung.`
+Überprüfe die bestehende Zusammenfassung anhand der aktuellen Werte. Passe an was sich verändert hat, behalte was noch stimmt. Antworte NUR mit dem fertigen Text — keine Erklärung, keine Einleitung, kein Kommentar.`
+    : basePrompt
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',

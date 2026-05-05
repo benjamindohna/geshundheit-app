@@ -113,7 +113,7 @@ export default function Dashboard() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [docSearch, setDocSearch] = useState('')
   const [docCategoryFilter, setDocCategoryFilter] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<'werte' | 'schlachtplan' | 'dokumente'>('werte')
+  const [activeTab, setActiveTab] = useState<'werte' | 'schlachtplan' | 'dokumente'>('schlachtplan')
   const [schlachtplanSubTab, setSchlachtplanSubTab] = useState<'exercises' | 'habits' | 'nutrition' | 'supplements'>('exercises')
   const [profile, setProfile] = useState<Profile | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
@@ -396,7 +396,7 @@ export default function Dashboard() {
             )}
 
             <div className="flex border-b border-zinc-200 mb-6 gap-1 overflow-x-auto">
-              {(['werte', 'schlachtplan', 'dokumente'] as const).map((tab) => (
+              {(['schlachtplan', 'werte', 'dokumente'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
