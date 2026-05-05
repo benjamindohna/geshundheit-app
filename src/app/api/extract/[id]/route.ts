@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { anthropic } from '@/lib/anthropic'
 import { generateMissingDescriptions } from '@/lib/descriptions'
+import { classifyAndFlagAllergens } from '@/lib/allergen-classifier'
 import { getCached, setCached } from '@/lib/extraction-cache'
 
 const VALID_CATEGORIES = [
@@ -29,8 +30,8 @@ Beispiele: "Großes Blutbild – Hausarzt, März 2025", "MRT rechtes Knie – Ra
 "observations": Nur klinisch anerkannte Messwerte und medizinische Befunde, die die allgemeine Gesundheit abbilden.
 
 NICHT in observations erfassen (explizit ausschließen):
-- Allergen- und Unverträglichkeitstests (IgG, IgE, Histamin-Intoleranz, Nahrungsmittel-Panels) — diese kommen in "allergens"
 - Wellness-Scores, gerätespezifische Indizes ohne klinische Norm (z.B. Stoffwechselindex %, Zuckerverbrennung %, biologisches Alter, Fitness-Score, Stresslevel-Index)
+- IgG-Nahrungsmittelpanel-Werte (IgG auf Lebensmittel wie IgG Hühnerei, IgG Weizen etc.) — diese Tests sind kommerziell, klinisch nicht validiert und von AAAAI und EAACI nicht anerkannt
 - Medikamente, Supplements, Behandlungen, Massagen
 - Ernährungsempfehlungen, Verhaltensanweisungen
 - Rechnungen, administrative Daten, Versicherungsinformationen
@@ -38,6 +39,7 @@ NICHT in observations erfassen (explizit ausschließen):
 
 Erfasse in observations ausschließlich Werte mit anerkannten klinischen Referenzbereichen:
 - Laborwerte: Blutbild (Hb, Hkt, Leukozyten, Thrombozyten etc.), Stoffwechsel (Glukose, HbA1c, Insulin), Lipide (LDL, HDL, Triglyzeride), Leber (GOT, GPT, GGT), Niere (Kreatinin, GFR, Harnstoff), Schilddrüse (TSH, fT3, fT4), Entzündung (CRP, BSG), Vitamine/Mineralien (Ferritin, Vitamin D, B12, Magnesium etc.), Hormone
+- Klinisch anerkannte Allergietests: IgE-Werte (z.B. IgE Erdnuss, IgE Hausstaubmilbe), Prick-Test-Befunde, ärztlich diagnostizierte Nahrungsmittelallergien
 - Vitalparameter: Blutdruck, Puls, Körpertemperatur, Sauerstoffsättigung
 - Körpermessungen: Gewicht (kg), Größe (cm), BMI, Körperfettanteil (%), Muskelmasse (kg), Taillenumfang
 - Medizinische Befunde und Diagnosen: Bildgebungsbefunde, Pathologiebefunde, ärztlich festgestellte Diagnosen
@@ -59,14 +61,6 @@ Für jeden observations-Eintrag:
 - clinical_severity: 1–10 (1 = unauffällig, 10 = unmittelbar behandlungsbedürftig)
 - measured_at: string (ISO-Datum aus dem Dokument; falls unbekannt: TODAY_DATE)
 - volatility: "high" | "medium" | "low"
-
-"allergens": Nur befüllen wenn dieses Dokument ein Allergen- oder Unverträglichkeitspanel enthält (IgG, IgE, Nahrungsmittel-Tests).
-- Erfasse NUR Einträge mit erhöhter Reaktion (IgG/IgE Klasse ≥ 2 oder gleichwertiger Schwellenwert)
-- Klasse 0 und 1 (keine oder minimale Reaktion) → NICHT erfassen
-- severity basiert auf Klasse: 4 → "komplett vermeiden", 3 → "stark reduzieren", 2 → "gelegentlich"
-- common_foods: 3–5 typische Lebensmittel die dieses Allergen enthalten (auf Deutsch)
-- Format: [{"name": "Allergenname", "severity": "komplett vermeiden"|"stark reduzieren"|"gelegentlich", "common_foods": ["Lebensmittel1", ...]}]
-- Falls kein Allergenpanel im Dokument: []
 
 Antworte NUR mit dem JSON-Objekt, ohne Markdown oder Erklärungen.`
 
@@ -210,6 +204,7 @@ export async function POST(
       .eq('id', id)
 
     void generateMissingDescriptions(rows.map((r) => r.display_name as string)).catch(console.error)
+    void classifyAndFlagAllergens(id).catch(console.error)
 
     const allergenRows = (Array.isArray(result.allergens) ? result.allergens : [])
       .filter((a) => a.name && a.severity)

@@ -1,6 +1,16 @@
 import { supabase } from './supabase'
 import { anthropic } from './anthropic'
 
+const BIRTH_DATE = new Date('1975-07-11')
+
+function getActualAge(): number {
+  const today = new Date()
+  let age = today.getFullYear() - BIRTH_DATE.getFullYear()
+  const m = today.getMonth() - BIRTH_DATE.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < BIRTH_DATE.getDate())) age--
+  return age
+}
+
 type ObsRow = {
   display_name: string
   value: number | null
@@ -39,7 +49,7 @@ export async function fetchObsText(): Promise<string> {
 
 async function generateSummary(obs: string, existing: string | null): Promise<string> {
   const prompt = existing
-    ? `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. 52 Jahre, männlich).
+    ? `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
 
 Aktuelle Messwerte:
 ${obs}
@@ -60,7 +70,7 @@ Die Zusammenfassung soll (max. 200 Wörter) den aktuellen Zustand beschreiben:
 Wichtig: Sprich Nikolaus direkt an (Du-Form). Nur Zustandsbeschreibung — keine Empfehlungen, keine Vorschläge was man tun könnte.
 Keine Markdown-Formatierung, keine Sternchen, kein Fettdruck — nur normaler Fließtext.
 Nur der Text, keine Einleitung.`
-    : `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. 52 Jahre, männlich).
+    : `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
 
 Aktuelle Messwerte:
 ${obs}
@@ -89,7 +99,7 @@ async function generateBodyAge(obs: string): Promise<number> {
     max_tokens: 16,
     messages: [{
       role: 'user',
-      content: `Schätze das biologische Alter (in Jahren) von Nikolaus (ca. 52 Jahre, männlich) anhand dieser klinischen Messwerte.
+      content: `Schätze das biologische Alter (in Jahren) von Nikolaus (ca. ${getActualAge()} Jahre, männlich) anhand dieser klinischen Messwerte.
 
 Bewertungsschema – gewichte diese Kategorien gleichmäßig soweit Daten vorhanden:
 1. Stoffwechsel & Glukose (HbA1c, Nüchternglukose, Insulin)
@@ -109,9 +119,9 @@ ${obs}
 Antworte ausschließlich mit einer ganzen Zahl.`,
     }],
   })
-  const raw = res.content[0].type === 'text' ? res.content[0].text.trim() : '52'
+  const raw = res.content[0].type === 'text' ? res.content[0].text.trim() : String(getActualAge())
   const age = parseInt(raw.replace(/\D/g, ''), 10)
-  return isNaN(age) ? 52 : Math.max(20, Math.min(90, age))
+  return isNaN(age) ? getActualAge() : Math.max(20, Math.min(90, age))
 }
 
 export async function updateProfile(): Promise<void> {

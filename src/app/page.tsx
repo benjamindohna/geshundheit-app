@@ -18,6 +18,7 @@ type Observation = {
   reference_range_high: number | null
   reference_range_text: string | null
   volatility: string
+  is_allergen: boolean
 }
 
 type Profile = {
@@ -124,6 +125,8 @@ export default function Dashboard() {
   const [descriptions, setDescriptions] = useState<Record<string, string>>({})
   const [descriptionsLoaded, setDescriptionsLoaded] = useState(false)
   const [expandedNames, setExpandedNames] = useState<Set<string>>(new Set())
+  const [foodNotes, setFoodNotes] = useState<Record<string, string>>({})
+  const [foodNotesLoaded, setFoodNotesLoaded] = useState(false)
 
   useEffect(() => {
     fetch('/api/observations')
@@ -173,6 +176,23 @@ export default function Dashboard() {
     }, 2000)
     return () => clearInterval(interval)
   }, [profileGenerating])
+
+  // Eager-load food notes as soon as critical allergen observations are available
+  useEffect(() => {
+    if (foodNotesLoaded || observations.length === 0) return
+    const allergens = observations
+      .filter((o) => o.is_allergen && (o.status === 'critical' || o.status === 'abnormal'))
+      .map((o) => ({ name: o.display_name, value: o.value, unit: o.unit, status: o.status }))
+    if (allergens.length === 0) { setFoodNotesLoaded(true); return }
+    fetch('/api/allergen-foods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allergens }),
+    })
+      .then((r) => r.json())
+      .then((d) => { setFoodNotes(d.foodNotes ?? {}); setFoodNotesLoaded(true) })
+      .catch(() => setFoodNotesLoaded(true))
+  }, [observations, foodNotesLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Backfill any missing descriptions once both observations and descriptions are loaded
   useEffect(() => {
@@ -238,10 +258,13 @@ export default function Dashboard() {
     })
   })()
 
-  const abnormal = deduped.filter((o) => o.status !== 'normal')
+  const abnormal = deduped.filter((o) => o.status !== 'normal' && !o.is_allergen)
     .sort((a, b) => b.clinical_severity - a.clinical_severity)
 
-  const allSorted = [...deduped].sort((a, b) => b.clinical_severity - a.clinical_severity)
+  const allSorted = deduped.filter((o) => !o.is_allergen).sort((a, b) => b.clinical_severity - a.clinical_severity)
+
+  const allergenObs = deduped.filter((o) => o.is_allergen).sort((a, b) => b.clinical_severity - a.clinical_severity)
+  const criticalAllergenObs = allergenObs.filter((o) => o.status === 'critical' || o.status === 'abnormal')
 
   async function logout() {
     await fetch('/api/auth', { method: 'DELETE' })
@@ -317,7 +340,7 @@ export default function Dashboard() {
                   </div>
 
                   {/* Body Age */}
-                  <div className="order-1 sm:order-2 sm:w-36 sm:shrink-0 bg-white rounded-xl border border-zinc-200 px-4 py-6 flex items-center justify-center gap-6 sm:flex-col sm:gap-3">
+                  <div className="order-1 sm:order-2 sm:w-36 sm:shrink-0 bg-white rounded-xl border border-zinc-200 px-4 py-6 flex items-center justify-center gap-12 sm:flex-col sm:gap-3">
                     {profileGenerating || (profileLoading && !profile) ? (
                       <div className="flex flex-col items-center gap-2 w-full">
                         {profileGenerating
@@ -331,11 +354,11 @@ export default function Dashboard() {
                       return (
                         <>
                           <div className="flex flex-col items-center text-center">
-                            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Körperalter</p>
-                            <p className={`text-[42px] font-bold tabular-nums leading-none ${numColor}`}>{profile.body_age}</p>
-                            <p className="text-xs text-zinc-500 mt-1">Jahre</p>
+                            <p className="text-sm sm:text-xs font-medium text-zinc-400 uppercase tracking-wide leading-none mb-0">Körperalter</p>
+                            <p className={`text-[86px] sm:text-[42px] font-bold tabular-nums leading-none mt-1 ${numColor}`}>{profile.body_age}</p>
+                            <p className="text-sm sm:text-xs text-zinc-500 mt-1">Jahre</p>
                           </div>
-                          <BodyAgeSmiley diff={diff} className="w-[65px] h-[65px] sm:w-11 sm:h-11" />
+                          <BodyAgeSmiley diff={diff} className="w-24 h-24 sm:w-11 sm:h-11" />
                         </>
                       )
                     })() : (
@@ -499,72 +522,114 @@ export default function Dashboard() {
                   </div>
                 ) : (() => {
                   const items = actionPlanItems.filter((i) => i.category === schlachtplanSubTab)
+
+                  const itemCard = (item: ActionPlanItem) => (
+                    <div key={item.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                      <div className="flex items-start justify-between mb-1 gap-2">
+                        <p className="text-sm font-medium text-zinc-800 leading-tight flex-1 min-w-0">{item.title}</p>
+                        {item.prescription_required && (
+                          <span className="text-xs px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200 font-medium whitespace-nowrap shrink-0">Rezeptpflichtig</span>
+                        )}
+                      </div>
+                      {item.label && (
+                        <span className="inline-block text-xs px-2 py-0.5 rounded border bg-zinc-50 text-zinc-500 border-zinc-200 mb-2">{item.label}</span>
+                      )}
+                      {item.value && (
+                        <p className="text-xl font-semibold text-zinc-900 mb-1">{item.value}</p>
+                      )}
+                      {item.note && (
+                        <p className="text-xs text-zinc-500 leading-relaxed">{item.note}</p>
+                      )}
+                    </div>
+                  )
+
+                  if (schlachtplanSubTab === 'nutrition') {
+                    return (
+                      <>
+                        {items.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center min-h-[200px]">
+                            <p className="text-sm text-zinc-400">Noch keine Daten. Lade Dokumente hoch und drücke &quot;Zum Dashboard&quot;.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {items.map(itemCard)}
+                          </div>
+                        )}
+                        <div className="mt-6">
+                          <button
+                            onClick={() => setAllergenExpanded((prev) => !prev)}
+                            className="w-full flex items-center justify-between bg-white border border-zinc-200 rounded-xl px-5 py-4 text-left hover:bg-zinc-50 transition-colors"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-zinc-700">Allergene &amp; Unverträglichkeiten</p>
+                              <p className="text-xs text-zinc-400 mt-0.5">Aus deinen Dokumenten extrahierte Allergenreaktionen</p>
+                            </div>
+                            <svg
+                              className={`w-4 h-4 text-zinc-400 shrink-0 ml-4 transition-transform duration-200 ${allergenExpanded ? 'rotate-180' : ''}`}
+                              viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            >
+                              <path d="M3 6l5 5 5-5" />
+                            </svg>
+                          </button>
+                          {allergenExpanded && (
+                            <div className="mt-3">
+                              {criticalAllergenObs.length === 0 ? (
+                                <p className="text-sm text-zinc-400 py-4 leading-relaxed">
+                                  Keine klinisch relevanten Allergiewerte erkannt. IgG-Nahrungsmittelpanel-Tests werden nicht erfasst — sie sind kommerziell und von den großen Allergologie-Gesellschaften (AAAAI, EAACI) nicht als diagnostisches Instrument anerkannt.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {criticalAllergenObs.map((o) => {
+                                    const hasNumber = o.value != null
+                                    const val = hasNumber
+                                      ? `${o.value}${o.unit ? ' ' + o.unit : ''}`
+                                      : o.value_text ?? '–'
+                                    const badgeColor = o.status === 'critical'
+                                      ? 'bg-red-100 text-red-700 border-red-200'
+                                      : 'bg-orange-100 text-orange-700 border-orange-200'
+                                    const foods = foodNotes[o.display_name]
+                                    return (
+                                      <div key={o.id} className="bg-orange-50 rounded-xl border border-orange-200 p-4">
+                                        <div className="flex items-start justify-between mb-2 gap-2">
+                                          <p className="text-sm font-medium text-orange-900 leading-tight flex-1 min-w-0">{o.display_name}</p>
+                                          <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${badgeColor}`}>
+                                            {statusLabel[o.status as keyof typeof statusLabel] ?? o.status}
+                                          </span>
+                                        </div>
+                                        <p className="text-xl font-semibold text-orange-900">{val}</p>
+                                        {o.reference_range_text && (
+                                          <p className="text-xs text-orange-500 mt-1">Ref: {o.reference_range_text}</p>
+                                        )}
+                                        {foods ? (
+                                          <p className="text-xs text-orange-700 leading-relaxed mt-3 pt-3 border-t border-orange-200">{foods}</p>
+                                        ) : !foodNotesLoaded ? (
+                                          <div className="mt-3 pt-3 border-t border-orange-200">
+                                            <div className="h-2.5 bg-orange-100 rounded animate-pulse w-full mb-1.5" />
+                                            <div className="h-2.5 bg-orange-100 rounded animate-pulse w-4/5" />
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )
+                  }
+
                   if (items.length === 0) {
                     return (
                       <div className="flex flex-col items-center justify-center min-h-[300px]">
-                        <p className="text-sm text-zinc-400">Noch keine Daten. Lade Dokumente hoch und drücke "Zum Dashboard".</p>
+                        <p className="text-sm text-zinc-400">Noch keine Daten. Lade Dokumente hoch und drücke &quot;Zum Dashboard&quot;.</p>
                       </div>
                     )
                   }
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {schlachtplanSubTab === 'nutrition' && allergens.length > 0 && (
-                        <div className="col-span-full bg-orange-50 border border-orange-200 rounded-xl overflow-hidden">
-                          <div className="px-4 py-3 border-b border-orange-100">
-                            <p className="text-sm font-semibold text-orange-800">⚠ Allergene &amp; Unverträglichkeiten</p>
-                            <p className="text-xs text-orange-500 mt-0.5">Nur erhöhte IgG-Reaktionen (Klasse ≥ 2)</p>
-                          </div>
-                          <div className={`divide-y divide-orange-100 overflow-hidden transition-all duration-300 ${allergenExpanded ? '' : 'max-h-48'}`}>
-                            {allergens.map((a) => {
-                              const badgeColor = a.severity === 'komplett vermeiden'
-                                ? 'bg-red-100 text-red-700 border-red-200'
-                                : a.severity === 'stark reduzieren'
-                                ? 'bg-orange-100 text-orange-700 border-orange-200'
-                                : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                              return (
-                                <div key={a.id} className="px-4 py-2.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <p className="text-sm font-medium text-orange-900">{a.name}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${badgeColor}`}>{a.severity}</span>
-                                  </div>
-                                  {a.common_foods.length > 0 && (
-                                    <p className="text-xs text-orange-500 mt-0.5">{a.common_foods.join(' · ')}</p>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                          {allergens.length > 3 && (
-                            <button
-                              onClick={() => setAllergenExpanded((e) => !e)}
-                              className="w-full px-4 py-2 text-xs text-orange-600 hover:text-orange-800 border-t border-orange-100 transition-colors"
-                            >
-                              {allergenExpanded ? '↑ Weniger anzeigen' : `↓ Alle ${allergens.length} Allergene anzeigen`}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {items.map((item) => (
-                        <div key={item.id} className="bg-white rounded-xl border border-zinc-200 p-4">
-                          <div className="flex items-start justify-between mb-2 gap-2">
-                            <p className="text-sm font-medium text-zinc-800 leading-tight flex-1 min-w-0">{item.title}</p>
-                            <div className="flex flex-col items-end gap-1 max-w-[45%]">
-                              {item.prescription_required && (
-                                <span className="text-xs px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200 font-medium whitespace-nowrap">Rx</span>
-                              )}
-                              {item.label && (
-                                <span className="text-xs px-2 py-0.5 rounded border bg-zinc-50 text-zinc-500 border-zinc-200 text-right break-words">{item.label}</span>
-                              )}
-                            </div>
-                          </div>
-                          {item.value && (
-                            <p className="text-xl font-semibold text-zinc-900 mb-1">{item.value}</p>
-                          )}
-                          {item.note && (
-                            <p className="text-xs text-zinc-500 leading-relaxed">{item.note}</p>
-                          )}
-                        </div>
-                      ))}
+                      {items.map(itemCard)}
                     </div>
                   )
                 })()}

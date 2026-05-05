@@ -93,17 +93,20 @@ Nur das JSON-Array. Kein Markdown.`
 
   if (category === 'nutrition') {
     const format = `[{"title": "Nährstoff oder Kategorie", "value": "konkreter Zielwert", "label": "z.B. pro Tag", "note": "kurze Begründung"}]`
-    if (hasExisting) return `Bestehende Ernährungsziele für Nikolaus (${age} Jahre):
+    if (hasExisting) return `Bestehende Ernährungsempfehlungen für Nikolaus (${age} Jahre):
 ${existingToText(existing)}
 
 Aktuelle Messwerte:
 ${obs}
 
-Überprüfe und passe an wo nötig. Gleiche JSON-Struktur: ${format}
+Überprüfe und passe an wo nötig. Nur Lebensmittel, Makros und Ernährungsmuster — keine Supplements oder Medikamente.
+Gleiche JSON-Struktur: ${format}
 Nur das JSON-Array. Kein Markdown.`
-    return `Du erstellst konkrete Ernährungsziele für Nikolaus (geb. 11.07.1975, ${age} Jahre alt).
+    return `Du erstellst konkrete Ernährungsempfehlungen für Nikolaus (geb. 11.07.1975, ${age} Jahre alt).
 
-Keine allgemeinen Aussagen — nur messbare, spezifische Ziele (z.B. "≤ 25 g Zucker", "≥ 100 g Protein").
+Nur Lebensmittel, Makros und Ernährungsmuster — keine Supplements, keine Medikamente, keine Nahrungsergänzungsmittel.
+Beispiele für gute Einträge: Proteinziel, Zuckerlimit, Ernährungsstil (z.B. mediterrane Diät), empfohlene Lebensmittel oder Lebensmittelgruppen, worauf er verzichten soll.
+Keine allgemeinen Aussagen — nur messbare oder konkret umsetzbare Ziele.
 5–8 Einträge.
 
 Format: ${format}
@@ -115,14 +118,15 @@ Nur das JSON-Array. Kein Markdown.`
   }
 
   // supplements
-  const format = `[{"title": "Name", "value": "Dosierung", "label": "Einnahmezeitpunkt", "note": "Begründung", "prescription_required": false}]`
+  const format = `[{"title": "<Name des Supplements>", "value": "<Dosierung>", "label": "<Einnahmezeitpunkt>", "note": "<Begründung>", "prescription_required": false}]`
   if (hasExisting) return `Bestehende Supplement-Empfehlungen für Nikolaus (${age} Jahre):
 ${existingToText(existing)}
 
 Aktuelle Messwerte:
 ${obs}
 
-Überprüfe und passe an wo nötig. Gleiche JSON-Struktur mit prescription_required.
+Überprüfe und passe an wo nötig.
+JSON-Format (exakt diese Schlüsselnamen): ${format}
 Nur das JSON-Array. Kein Markdown.`
   return `Du erstellst Supplement-Empfehlungen für Nikolaus (geb. 11.07.1975, ${age} Jahre alt).
 
@@ -130,7 +134,7 @@ OTC-Supplements UND verschreibungspflichtige Medikamente wenn klinisch indiziert
 Bei Rx-Mitteln: prescription_required: true und Hinweis auf ärztliche Rücksprache in der note.
 4–8 Einträge.
 
-Format: ${format}
+JSON-Format (exakt diese Schlüsselnamen): ${format}
 
 Messwerte:
 ${obs}
