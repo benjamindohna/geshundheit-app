@@ -395,15 +395,15 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="flex border-b border-zinc-200 mb-6 gap-1 overflow-x-auto">
+            <div className="flex gap-1 mb-6 overflow-x-auto">
               {(['schlachtplan', 'werte', 'dokumente'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
                     activeTab === tab
-                      ? 'border-zinc-900 text-zinc-900'
-                      : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                      ? 'bg-zinc-900 text-white'
+                      : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-700'
                   }`}
                 >
                   {tab === 'werte' ? 'Messwerte' : tab === 'schlachtplan' ? 'Schlachtplan' : 'Dokumente'}
@@ -497,7 +497,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Sub-tabs */}
-                <div className="flex gap-1 mb-5 overflow-x-auto">
+                <div className="flex border-b border-zinc-200 mb-5 gap-1 overflow-x-auto">
                   {([
                     { key: 'exercises', label: 'Übungen' },
                     { key: 'habits', label: 'Habits' },
@@ -507,10 +507,10 @@ export default function Dashboard() {
                     <button
                       key={key}
                       onClick={() => setSchlachtplanSubTab(key)}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                         schlachtplanSubTab === key
-                          ? 'bg-zinc-900 text-white'
-                          : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-700'
+                          ? 'border-zinc-900 text-zinc-900'
+                          : 'border-transparent text-zinc-500 hover:text-zinc-700'
                       }`}
                     >
                       {label}
