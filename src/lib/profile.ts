@@ -48,6 +48,8 @@ export async function fetchObsText(): Promise<string> {
 }
 
 async function generateSummary(obs: string, existing: string | null): Promise<string> {
+  const laymanNote = `Nikolaus ist medizinischer Laie. Schreibe so, dass er ein intuitives Gefühl bekommt, was die Befunde für seine Gesundheit bedeuten — welche Risiken bestehen, wie sich das langfristig auswirken kann. Nenne nicht nur Werte und Statusbewertungen, sondern vermittle das Gefühl hinter den Zahlen: Was ist das konkrete Problem? Was steht auf dem Spiel? Du musst keine Begriffe erklären — aber der Text soll so klingen, dass jemand ohne medizinisches Vorwissen versteht, warum etwas relevant ist.`
+
   const prompt = existing
     ? `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
 
@@ -68,6 +70,7 @@ Die Zusammenfassung soll (max. 200 Wörter) den aktuellen Zustand beschreiben:
 - Wie ist der Zustand im Vergleich zu Männern gleichen Alters?
 
 Wichtig: Sprich Nikolaus direkt an (Du-Form). Nur Zustandsbeschreibung — keine Empfehlungen, keine Vorschläge was man tun könnte.
+${laymanNote}
 Keine Markdown-Formatierung, keine Sternchen, kein Fettdruck — nur normaler Fließtext.
 Nur der Text, keine Einleitung.`
     : `Du bist Arzt und beurteilst den Gesundheitszustand von Nikolaus (ca. ${getActualAge()} Jahre, männlich).
@@ -81,6 +84,7 @@ Schreibe eine Zustandsbeschreibung (max. 200 Wörter):
 - Wie ist der Zustand im Vergleich zu Männern gleichen Alters?
 
 Wichtig: Sprich Nikolaus direkt an (Du-Form). Nur Zustandsbeschreibung — keine Empfehlungen, keine Vorschläge was man tun könnte.
+${laymanNote}
 Keine Markdown-Formatierung, keine Sternchen, kein Fettdruck — nur normaler Fließtext.
 Nur der Text, keine Einleitung.`
 

@@ -178,12 +178,12 @@ async function generateSummary(
 `
     : ''
 
-  const prompt = `Du erstellst die Einleitung zum personalisierten Schlachtplan für Nikolaus (${age} Jahre).
+  const prompt = `Du bist ein erfahrener Chefarzt mit Jahrzehnten klinischer Praxis. Du hast hunderte Patienten in dieser Lebenslage gesehen — du kennst die Verläufe, du weißt was passiert und was nicht passiert. Jetzt gibst du Nikolaus (${age} Jahre) eine ehrliche, nüchterne Einschätzung.
 
 ${profileSection}Messwerte:
 ${obs}
 
-Schlachtplan:
+Sein Schlachtplan:
 
 Übungen:
 ${fmt('exercises')}
@@ -197,15 +197,15 @@ ${fmt('nutrition')}
 Supplements:
 ${fmt('supplements')}
 
-Nikolaus hat den Gesundheitsstatus oben bereits gelesen — er kennt seine Probleme. Wiederhole die Diagnose NICHT.
+Schreibe einen Text mit drei Teilen — kein Markdown, keine Überschriften, Fließtext, max. 200 Wörter:
 
-Schreibe stattdessen 4–5 Sätze, die direkt an den Gesundheitsstatus anknüpfen und erklären, wie dieser Schlachtplan genau diese Probleme angeht:
-- Nenne konkret welche Werte / Probleme aus dem Gesundheitsstatus durch welche Maßnahmen angegangen werden
-- Erkläre was sich dadurch messbar verbessern wird (Blutwerte, Energie, Gewicht, Wohlbefinden)
-- Gib Nikolaus das Gefühl: "Das ist der Plan, der meine konkreten Probleme löst"
+1. Deine Empfehlung: Was soll er aus diesem Plan konkret umsetzen? Nicht alles — wähle realistisch aus. Zum Beispiel: welche Kategorien sind am wichtigsten, was kann er täglich tun, was ist nice-to-have. Sprich direkt und konkret, nicht allgemein.
 
-Ton: lösungsorientiert, motivierend, persönlich (Du-Form). Nikolaus soll beim Lesen Vorfreude entwickeln.
-Kein Markdown, keine Überschriften, nur Fließtext.`
+2. Wenn er es auf die leichte Schulter nimmt: Was passiert in 5, 10 und 20 Jahren? Realistisch, keine Übertreibung — aber klar und ohne Beschönigung.
+
+3. Wenn er es ernst nimmt: Was passiert in 5, 10 und 20 Jahren? Gleiche Struktur, gleiche Nüchternheit.
+
+Ton: trocken, direkt, erfahren. Kein Motivationsspeaker, kein erhobener Zeigefinger, keine leeren Phrasen. So wie ein Arzt der schon alles gesehen hat und dem es zu anstrengend ist, um den heißen Brei herumzureden.`
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',

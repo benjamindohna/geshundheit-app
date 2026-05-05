@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { updateActionPlan } from '@/lib/action-plan'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const [{ data: itemsData }, { data: summaryData }] = await Promise.all([
     supabase.from('action_plan_items').select('*').order('updated_at', { ascending: false }),
