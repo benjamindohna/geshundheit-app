@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+﻿import { supabase } from './supabase'
 import { anthropic } from './anthropic'
 import { fetchObsText } from './profile'
 
@@ -197,7 +197,7 @@ ${fmt('nutrition')}
 Supplements:
 ${fmt('supplements')}
 
-Berücksichtige die mitgelieferten Daten und gib Nikolaus (${age} Jahre) per Du deine persönliche Botschaft an ihn: Du weißt, er ist ein Mensch. Nicht jeder macht sich einen konkreten Tagesplan und zieht alles robotisch durch. Du willst ihm deshalb realistisch einige Dinge sagen die er tun kann, und ihm klarmachen was ihm blüht wenn er sich wirklich bemüht.
+Berücksichtige die mitgelieferten Daten und gib Nikolaus (${age} Jahre) per Du deine persönliche Botschaft an ihn. Du weißt, er ist ein Mensch. Nicht jeder macht sich einen konkreten Tagesplan und zieht alles robotisch durch. Du willst ihm deshalb realistisch einige Dinge sagen die er tun kann, und ihm klarmachen was ihm blüht wenn er sich wirklich bemüht. Sprich ihn dabei nicht namentlich an.
 
 Kein Markdown, keine Überschriften, nur Fließtext. Max. 200 Wörter.`
 
